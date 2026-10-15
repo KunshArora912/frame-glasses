@@ -100,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val intent = Intent(this, FrameService::class.java)
-        ContextCompat.startForegroundService(this, intent)   // keeps it alive when we unbind
+        startService(intent)   // plain start keeps it alive after unbind; it goes foreground when a link exists
         bindService(intent, conn, Context.BIND_AUTO_CREATE)
     }
 
