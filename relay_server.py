@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 from websockets.datastructures import Headers
 
@@ -69,7 +70,7 @@ class Relay:
         self.phone = ws
         log("phone bridge connected")
         try:
-            async for raw in ws:
+            async for raw in self._messages(ws):
                 try:
                     m = json.loads(raw)
                 except Exception:
@@ -106,7 +107,7 @@ class Relay:
         self.app = ws
         peer = "laptop program"
         try:
-            async for raw in ws:
+            async for raw in self._messages(ws):
                 try:
                     m = json.loads(raw)
                 except Exception:
@@ -129,6 +130,15 @@ class Relay:
         finally:
             if self.app is ws:
                 self.app = None
+
+    @staticmethod
+    async def _messages(ws):
+        """Iterate incoming messages; a peer that drops without a close frame just ends the loop."""
+        try:
+            async for raw in ws:
+                yield raw
+        except ConnectionClosed:
+            return
 
     @staticmethod
     async def _send(ws, m: dict) -> None:

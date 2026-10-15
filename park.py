@@ -45,7 +45,7 @@ def log(msg: str) -> None:
 async def battery_level(frame) -> float | None:
     """Read the gauge, or None if it cannot be read."""
     try:
-        reply = await frame.ble.send_lua("print(frame.battery_level())",
+        reply = await getattr(frame, "ble", frame).send_lua("print(frame.battery_level())",
                                          await_print=True, timeout=6)
         return float(str(reply).strip())
     except Exception:
@@ -60,7 +60,7 @@ async def park(frame, *, report: bool = True) -> None:
     """
     level = await battery_level(frame)
     try:
-        await frame.ble.send_lua("frame.display.power_save(true)", timeout=4)
+        await getattr(frame, "ble", frame).send_lua("frame.display.power_save(true)", timeout=4)
     except Exception as exc:
         log(f"  could not power down the display: {type(exc).__name__}")
 

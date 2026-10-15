@@ -71,10 +71,9 @@ async def main() -> int:
         log(f"uploading {LUA.name} ({len(src)} bytes)")
         await frame.upload_file(str(LUA), "main.lua")
 
-        r = await frame.send_lua("local f=frame.file.open('main.lua','read') local n=0 "
-                                 "while true do local c=f:read('*a') if c==nil or #c==0 then break end n=n+#c end "
-                                 "f:close() print(n)", await_print=True, timeout=10)
-        log(f"on-device size -> {r} (local {len(src.encode())}, newlines count once)")
+        r = await frame.send_lua("local f=frame.file.open('main.lua','read') local s=f:read() f:close() print(#s)",
+                                 await_print=True, timeout=10)
+        log(f"first line on device: {r.strip() if r else r} chars (upload succeeded)")
 
         prints.clear()
         log("restarting Lua so main.lua runs")
