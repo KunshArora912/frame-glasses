@@ -43,3 +43,24 @@ Verified: docked sleep -> lift -> woke in ~20 s, boot log reason 0x20000 (LPCOMP
   venv, signed with the repo's `dfu_private_key.pem`).
 - Flash: `python dfu_update.py --zip <zip>` (glasses awake, nothing else connected).
 - DFU keeps the bond but wipes LittleFS; pin resets wipe the bond.
+
+## Idle sleep (fix2, `apply_idle_sleep.py` on top of the wake fix)
+Off the cradle, with no Bluetooth connection and no tap for `idle_sleep_seconds`
+(default 300; `frame.idle_sleep(n)` sets it, 0 disables), the glasses sleep with
+tap-wake armed. Docked glasses never idle-sleep ("docked" = the PMIC sees charger
+voltage, not the stuck detect pin). Poll point is the Lua watchdog hook, so any
+running app or REPL is covered; a tap resets the timer.
+
+Verified 2026-10-14 23:24: with a 20 s timeout and no connection it slept on
+schedule. (It was on the cradle at the time but `frame.amux(1)` read 0.125 V,
+i.e. no charger contact, so the "docked" guard correctly did not apply.)
+
+Open item: the flashed fix2 was built before two prototypes were added; the
+committed build is identical in behaviour but warning-free. Re-flash
+`firmware/frame-fix2.zip` next time the glasses are awake and reachable.
+
+## Quick checks
+- Is it really charging? `frame.amux(1)` > 0.5 V means charger voltage present;
+  ~0.1 V means no contact even if it is sitting in the cradle.
+- Wake a sleeping Frame: three firm taps (tap-sleep or idle-sleep), or lift it
+  off a powered cradle (docked sleep), or the cradle pin (wipes the bond).
