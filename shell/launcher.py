@@ -28,6 +28,7 @@ from brilliant_msg import BrilliantMsg, RxAudio, RxIMU, RxTap, TxCode
 from park import park
 from shell.app import App, Screen
 from shell.gestures import Gesture, TapInput
+from shell.mudra import MudraInput
 from shell.protocol import (AUDIO_CTRL_MSG, IMU_CTRL_MSG, MAX_ROWS,
                             TAP_CTRL_MSG)
 
@@ -53,6 +54,8 @@ class Launcher:
         self.rx_audio = RxAudio(streaming=True)
         self.audio_q = None
         self.taps: TapInput | None = None
+        self.mudra = MudraInput()          # second input: the band, via Mudra Link's local stream
+        self._mudra_seen = False
         self._audio_task: asyncio.Task | None = None
         self._listener = None
         self.rx_imu = RxIMU(smoothing_samples=1)   # raw; apps smooth
@@ -232,26 +235,38 @@ class Launcher:
                 log(f"  ignored {dropped} wake-up tap(s)")
             self.taps.arm()
 
+        await self.mudra.start()
         await self.draw_menu()
         log(f"shell ready -- {len(self.apps)} apps. "
             f"1 tap = move, 2 = open, 3 = back, 4+ = quit")
+        log("mudra: tap = open, double tap = back, twist = next, "
+            "double twist = quit, d-pad = move (needs Mudra Link > Mudra Studio on)")
 
         last_tick = 0.0
         while True:
             if self._send_fails >= 10:
                 log("the glasses stopped responding -- giving up")
+                await self.mudra.stop()
                 return 2
 
-            gesture = None
-            if self.taps is not None:
-                gesture = await self.taps.next_gesture(timeout=IDLE_TIMEOUT)
-            else:
-                await asyncio.sleep(IDLE_TIMEOUT)
+            if self.mudra.connected != self._mudra_seen:
+                self._mudra_seen = self.mudra.connected
+                log("mudra: band " + ("ready" if self._mudra_seen else "away"))
+
+            # The band first (instant), then the glasses' taps (which block
+            # for IDLE_TIMEOUT while grouping a burst).
+            gesture = await self.mudra.next_gesture(timeout=0)
+            if gesture is None:
+                if self.taps is not None:
+                    gesture = await self.taps.next_gesture(timeout=IDLE_TIMEOUT)
+                else:
+                    await asyncio.sleep(IDLE_TIMEOUT)
 
             if gesture is Gesture.QUIT:
                 log("quit")
                 await self.close_app()
                 await self.screen.clear()
+                await self.mudra.stop()
                 return 0
 
             if self.current is None:

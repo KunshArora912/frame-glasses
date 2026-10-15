@@ -127,6 +127,11 @@ class MudraInput:
                 return n
 
     async def next_gesture(self, timeout: float | None = None) -> Gesture | None:
+        if timeout is not None and timeout <= 0:
+            try:
+                return self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return None
         try:
             return await asyncio.wait_for(self.queue.get(), timeout=timeout)
         except asyncio.TimeoutError:
@@ -219,3 +224,26 @@ async def probe(url: str = WS_URL, seconds: float = 6.0) -> dict:
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+if __name__ == "__main__":
+    # python -m shell.mudra : is Mudra Link streaming, and is a band on the wrist?
+    import sys
+
+    async def _cli() -> int:
+        log("probing Mudra Link at " + WS_URL + " for 6 s ...")
+        r = await probe()
+        if not r["companion"]:
+            log("Mudra Link is not streaming: open Mudra Link > Advanced settings > "
+                "Mudra Studio and turn it on (" + r["error"] + ")")
+            return 2
+        log("Mudra Link stream: yes   band on wrist: " + ("yes" if r["band"] else "no")
+            + "   frames seen: " + ", ".join(sorted(set(str(x) for x in r["signals"]))))
+        if "--simulate" in sys.argv:
+            import websockets
+            async with websockets.connect(WS_URL) as socket:
+                await socket.send(json.dumps({"command": "trigger_gesture", "data": {"type": "tap"}}))
+                log("sent a simulated tap")
+        return 0
+
+    sys.exit(asyncio.run(_cli()))
