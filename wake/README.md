@@ -1,0 +1,45 @@
+# Frame undock-wake investigation and fix
+
+## Symptom
+Lifting the glasses off the charging cradle never woke them. Only the cradle's
+pairing pin (which also wipes the Bluetooth bond) could boot them.
+
+## Root cause (measured 2026-10-14, firmware v25.278.1113)
+Stock firmware sleeps on dock by entering nRF52840 System OFF with one wake
+source: GPIO P0.17 (`CASE_DETECT_PIN`) going low. That line is a 620k/300k
+divider off the 5 V charging pad. On this unit it **stays high after undocking**
+(logged with `frame.case_detect()` while the PMIC's CHGIN monitor showed the
+charger voltage collapsing), so the wake can never fire. The pairing pin shorts
+the same line to ground, which is why it always works. This is a board fault
+(most likely the 300k pull-down open); the firmware has no other wake path.
+
+Evidence: `frame.boot_diag()` retained boot log showed no boot attempt and no
+reset of any kind between the dock sleep and the next pin press. A battery-
+powered DFU reboot came up fine, ruling out brown-out. Sag under load was ~1%.
+
+## Fix (firmware, `apply_diag_patch.py` then `apply_wake_fix.py` on tag v25.278.1113)
+- When sleeping while docked, route the MAX77654 AMUX to the CHGIN voltage
+  monitor and arm the nRF LPCOMP on AIN3 (ref 5/16 VDD, falling edge, hysteresis)
+  so charger removal wakes the chip via ANADETECT. Skip PMIC main-bias LPM in
+  that case so the AMUX keeps working.
+- Stop the nrfx GPIOTE driver before arming wake senses: its PORT handler was
+  inverting the sense polarity when a sense was armed on a pin already at the
+  sensed level (found by source audit).
+- Arm case-detect to wake on a change from its current level; arm the IMU INTA
+  as sense-high (it is push-pull active-high).
+- Re-read the charger status 300 ms later at boot when it first reads
+  "present", so an undock wake is not misread as "still docked".
+- Boot log retained across resets and System OFF, readable as
+  `frame.boot_diag()`; probes `frame.case_detect()` and `frame.amux(sel)`.
+- Diagnostic builds default to `stay_awake = true` (stay on while charging).
+  Call `frame.stay_awake(false)` before `frame.sleep()` to actually sleep.
+
+Verified: docked sleep -> lift -> woke in ~20 s, boot log reason 0x20000 (LPCOMP).
+
+## Build / flash
+- Toolchain: Arm GNU 13.3 in WSL (`~/tools/...`), build with
+  `make application BUILD_VERSION=<ver>` in a worktree of frame-codebase.
+- Package: `make_dfu.py <repo> <out.zip>` (pc-nrfutil 6.1.7 in a Python 3.10
+  venv, signed with the repo's `dfu_private_key.pem`).
+- Flash: `python dfu_update.py --zip <zip>` (glasses awake, nothing else connected).
+- DFU keeps the bond but wipes LittleFS; pin resets wipe the bond.
