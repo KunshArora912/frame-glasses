@@ -57,6 +57,9 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
     val log: LiveData<List<String>> get() = _log
 
     private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var wantConnected = false          // auto-reconnect while true
+    private val RECONNECT_MS = 8000L
     var savedAddress: String?
         get() = prefs.getString(KEY_ADDR, null)
         set(v) { prefs.edit().putString(KEY_ADDR, v).apply() }
@@ -86,13 +89,33 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
 
     // ------------------------------------------------------------- actions
     fun connect(forceScan: Boolean = false) {
+        wantConnected = true
         goForeground("Connecting to Frame")
         ble.connect(if (forceScan) null else savedAddress)
     }
 
     fun disconnect() {
+        wantConnected = false
+        main.removeCallbacks(reconnect)
         ble.disconnect()
         stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    // The glasses sleep, reboot after a firmware update, or walk out of range;
+    // keep trying the saved address until the user presses Disconnect.
+    private val reconnect: Runnable = object : Runnable {
+        override fun run() {
+            if (wantConnected && !ble.connected) {
+                addLog("retrying ...")
+                ble.connect(savedAddress)
+                main.postDelayed(reconnectCheck, 20_000)
+            }
+        }
+    }
+    private val reconnectCheck: Runnable = object : Runnable {
+        override fun run() {
+            if (wantConnected && !ble.connected) { ble.disconnect(); main.postDelayed(reconnect, RECONNECT_MS) }
+        }
     }
 
     fun forgetDevice() { savedAddress = null; addLog("forgot saved Frame; next Connect scans") }
@@ -122,9 +145,15 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         if (connected && address != null) savedAddress = address
         _bleState.value = BleState(connected, name)
         relay.ble(connected, name, ble.mtu)
-        if (connected) goForeground("Connected to ${name ?: "Frame"}")
-        else { textBuf.setLength(0); updateNotification("Frame not connected") }
-        addLog(if (connected) "connected to ${name ?: "Frame"}" else "not connected")
+        if (connected) {
+            main.removeCallbacks(reconnect); main.removeCallbacks(reconnectCheck)
+            goForeground("Connected to ${name ?: "Frame"}")
+        } else {
+            textBuf.setLength(0)
+            updateNotification(if (wantConnected) "Frame away; retrying" else "Frame not connected")
+            if (wantConnected) { main.removeCallbacks(reconnect); main.postDelayed(reconnect, RECONNECT_MS) }
+        }
+        addLog(if (connected) "connected to ${name ?: "Frame"}" else if (wantConnected) "not connected; will retry" else "not connected")
     }
 
     override fun onPacket(bytes: ByteArray) {

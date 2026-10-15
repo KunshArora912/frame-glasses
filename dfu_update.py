@@ -318,12 +318,79 @@ async def enter_dfu() -> bool:
     return True
 
 
+async def _relay_session():
+    """A BrilliantBle-style link through relay_server.py (phone holds the bond)."""
+    import frame_relay
+    frame_relay.install()
+    from brilliant_ble import BrilliantBle
+    f = BrilliantBle()
+    await f.connect(timeout=5)
+    return f
+
+
+async def enter_dfu_via_phone() -> bool:
+    log("asking the glasses to reboot into the bootloader, through the phone...")
+    try:
+        f = await _relay_session()
+    except Exception as exc:
+        log(f"phone relay not reachable ({type(exc).__name__}: {exc}); "
+            f"is relay_server.py running and the app linked and connected?")
+        log("falling back: scanning for a bootloader already advertising")
+        return False
+    try:
+        await f.send_break_signal()
+        try:
+            await f.send_lua("frame.display.text('Updating firmware...',70,180);frame.display.show()")
+        except Exception:
+            pass
+        log("sending frame.update() -- device will reboot into the bootloader")
+        try:
+            await f.send_lua("frame.update()")
+        except Exception as exc:
+            log(f"(write returned {type(exc).__name__} -- expected on reboot)")
+    finally:
+        try:
+            await f.disconnect()
+        except Exception:
+            pass
+    return True
+
+
+async def verify_via_phone() -> int:
+    log("verifying through the phone (its app reconnects to the glasses by itself)...")
+    for attempt in range(1, 13):
+        await asyncio.sleep(5.0)
+        try:
+            f = await _relay_session()
+        except Exception as exc:
+            log(f"  attempt {attempt}/12: {str(exc)[:60]}")
+            continue
+        try:
+            await f.send_break_signal()
+            got = await f.send_lua("print(frame.FIRMWARE_VERSION)", await_print=True, timeout=5)
+            log(f"FIRMWARE NOW: {str(got).strip()}")
+            return 0
+        except Exception as exc:
+            log(f"  attempt {attempt}/12: {type(exc).__name__}: {exc}")
+        finally:
+            try:
+                await f.disconnect()
+            except Exception:
+                pass
+    log("Flash finished; could not read the version back through the phone yet. "
+        "Check the app's status card (firmware shows there).")
+    return 0
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--zip", type=Path,
                     default=Path("firmware/frame-firmware-v25.278.1113.zip"))
     ap.add_argument("--dry-run", action="store_true",
                     help="enter DFU and read device state, but write nothing")
+    ap.add_argument("--via-phone", action="store_true",
+                    help="glasses are bonded to the phone: trigger and verify through "
+                         "relay_server.py (phone app linked); the bootloader itself needs no bond")
     args = ap.parse_args()
 
     if not args.zip.exists():
@@ -334,6 +401,9 @@ async def main() -> int:
     init_packet = z.read("application.dat")
     image = z.read("application.bin")
     log(f"firmware {args.zip.name}: init={len(init_packet)}B image={len(image)}B")
+
+    if args.via_phone:
+        await enter_dfu_via_phone()
 
     dfu_dev = await BleakScanner.find_device_by_filter(
         lambda d, adv: DFU_SERVICE in [u.lower() for u in (adv.service_uuids or [])],
@@ -388,6 +458,8 @@ async def main() -> int:
         log("transfer complete -- device is rebooting into the new firmware")
 
     await asyncio.sleep(8.0)
+    if args.via_phone:
+        return await verify_via_phone()
     log("verifying...")
     for attempt in range(1, 9):
         dev = await BleakScanner.find_device_by_filter(_is_frame_normal, timeout=10.0)
