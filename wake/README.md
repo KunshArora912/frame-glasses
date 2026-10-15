@@ -64,3 +64,23 @@ committed build is identical in behaviour but warning-free. Re-flash
   ~0.1 V means no contact even if it is sitting in the cradle.
 - Wake a sleeping Frame: three firm taps (tap-sleep or idle-sleep), or lift it
   off a powered cradle (docked sleep), or the cradle pin (wipes the bond).
+
+## fix3 (2026-10-15)
+
+`frame-fix3.zip` changes only diagnostics, no wake logic:
+
+- `diag_format()` is bounds-safe (the old `len - n` could wrap once `n`
+  passed `len`), skips implausible entries, and records the RAM[8] power /
+  retention register seen at boot plus whether the retained log survived.
+- `frame.boot_diag_raw()` returns the retained struct as hex.
+
+Pitfall found while testing: a single Lua `print()` whose output exceeds
+`frame.bluetooth.max_length()` (243 bytes here) is dropped silently, so a
+full `frame.boot_diag()` (500+ bytes) reads back as an empty string. Print
+it in chunks: `local s=frame.boot_diag() for i=1,#s,200 do print(s:sub(i,i+199)) end`.
+`wake/read_diag.py`, `wake/wake_watch.py` and `wake/lua_exec.py` do this.
+
+Verified on hardware 2026-10-15 (watcher log, `wake/wake_watch.py`):
+docked sleep -> lifted off cradle -> advertising 2 s after boot;
+idle sleep (30 s timeout, off cradle) -> silent 47 s -> three taps ->
+advertising 1.4 s after boot, screen on.

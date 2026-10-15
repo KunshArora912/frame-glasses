@@ -20,7 +20,7 @@ async def read_state(d):
     async def lua(s, wait=1.2):
         out.clear(); await c.write_gatt_char(TX, s.encode(), response=True); await asyncio.sleep(wait); return ''.join(out).strip()
     log("  " + await lua("print('uptime_s', frame.time.utc(), 'chgin_v', frame.amux(1), 'batt', frame.battery_level(), 'cd', frame.case_detect())"))
-    log("  boot log:\n" + await lua("print(frame.boot_diag())", 2.0))
+    log("  boot log:\n" + await lua("local s=frame.boot_diag() for i=1,#s,200 do print(s:sub(i,i+199)) end", 2.0))
     await c.disconnect()
 
 async def main():

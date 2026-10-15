@@ -41,6 +41,6 @@ async def main():
     await c.write_gatt_char(TX, b'\x03', response=True); await asyncio.sleep(0.5)
     log("fw: " + await lua("print(frame.FIRMWARE_VERSION)"))
     log("battery: " + await lua("print(frame.battery_level())"))
-    log("DIAG:\n" + await lua("print(frame.boot_diag())", 2.0))
+    log("DIAG:\n" + await lua("local s=frame.boot_diag() for i=1,#s,200 do print(s:sub(i,i+199)) end", 2.0))
     await c.disconnect()
 asyncio.run(main())
