@@ -141,6 +141,8 @@ local last_jitter = t0
 local jitter = 0
 local blanked = false
 local launch_app = nil
+local last_status = -100
+local STATUS_S = 10    -- when a host is connected, report battery/charging this often
 
 print('main.lua: wake screen + launcher')
 
@@ -178,6 +180,14 @@ while true do
 
     local chg = charging()
     local idle = t - last_activity
+
+    -- status:<pct>:<1 charging|0 battery|->:<firmware>  for the phone page / laptop
+    if connected() and t - last_status >= STATUS_S then
+        local pct = battery()
+        print('status:' .. (pct or '') .. ':' .. (chg == true and '1' or chg == false and '0' or '-')
+              .. ':' .. tostring(frame.FIRMWARE_VERSION))
+        last_status = t
+    end
 
     -- on battery: blank after a while, sleep after longer. Any tap wakes the
     -- screen; three taps wake the glasses from sleep.

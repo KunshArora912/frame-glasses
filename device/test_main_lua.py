@@ -39,6 +39,7 @@ def run(charging, taps_at, horizon, battery=87.0, connected=False):
         "sleep": sleep,
         "stay_awake": lambda v=None: state.__setitem__("stay", v),
         "battery_level": lambda: battery,
+        "FIRMWARE_VERSION": "vTEST",
         "amux": lambda sel: 0.79 if charging else 0.12,
         "time": L.table_from({"utc": lambda: state["t"]}),
         "bluetooth": L.table_from({"is_connected": lambda: connected}),
@@ -108,6 +109,13 @@ check("jitter moves text on charger", len(xs) >= 2, xs)
 # 7. low battery bar colour (RED index 3 -> offset 2) and no amux (stock firmware)
 s = run(charging=False, taps_at=[], horizon=1, battery=15.0)
 check("red bar when low", any("off=2" in x for _, d in s["draws"] for x in d), s["draws"][:1])
+
+# 8. a connected host gets a status line every 10 s; nothing when unconnected
+s = run(charging=True, taps_at=[], horizon=25, connected=True)
+st = [p for p in s["prints"] if p.startswith("status:")]
+check("status lines when connected", len(st) == 3 and st[0] == "status:87:1:vTEST", st)
+s = run(charging=True, taps_at=[], horizon=25, connected=False)
+check("no status lines when unconnected", not any(p.startswith("status:") for p in s["prints"]))
 
 print("\nFAILS:", fails)
 sys.exit(1 if fails else 0)

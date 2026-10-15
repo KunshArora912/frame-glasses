@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<title>Frame</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #111; color: #eee; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 8px 0 16px; display: flex; justify-content: space-between; align-items: center; }
+  .card { background: #1c1c1c; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 10px 14px; border: 0; border-radius: 10px; background: #2d7cff; color: #fff; }
+  button.alt { background: #333; }
+  button:disabled { opacity: .4; }
+  input { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #000; color: #eee; flex: 1; min-width: 0; }
+  .big { font-size: 44px; font-weight: 600; }
+  .muted { color: #999; font-size: 14px; }
+  .bar { height: 10px; border-radius: 6px; background: #333; overflow: hidden; margin: 8px 0; }
+  .bar i { display: block; height: 100%; background: #3c3; width: 0; transition: width .4s; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #666; margin-right: 6px; }
+  .dot.on { background: #3c3; }
+  pre { background: #000; border-radius: 10px; padding: 10px; max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+  .apps button { background: #262626; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Frame <span class="muted" id="fw"></span></h1>
+
+  <div class="card">
+    <div class="row">
+      <span><span class="dot" id="bleDot"></span><span id="bleText">Not connected</span></span>
+      <span style="flex:1"></span>
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="alt" hidden>Disconnect</button>
+    </div>
+    <div class="muted" id="hint">Needs Chrome on Android (or Bluefy on iPhone). Frame bonds with one host: if the laptop is bonded, do the cradle-pin reset first, then connect here.</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="big" id="pct">--%</div>
+      <div id="state" class="muted">waiting for the glasses to report</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="muted" id="seen"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span><span class="dot" id="relayDot"></span>Laptop relay</span>
+      <span style="flex:1"></span>
+      <button id="relayBtn" class="alt">Link</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="relayUrl" placeholder="wss://laptop.tailnet.ts.net/phone">
+    </div>
+    <div class="muted">While linked, programs on the laptop (frame_host.py, assistant.py, ...) use this phone's Bluetooth. Pick an app on the glasses, or here:</div>
+    <div class="row apps" style="margin-top:8px" id="apps"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input id="lua" placeholder="Lua, e.g. print(frame.battery_level())">
+      <button id="sendBtn" class="alt">Send</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="breakBtn" class="alt">Break</button>
+      <button id="resetBtn" class="alt">Wake screen (reset)</button>
+      <button id="clearBtn" class="alt">Clear log</button>
+    </div>
+    <div class="muted">Break stops main.lua so the REPL answers; Reset starts it again.</div>
+  </div>
+
+  <pre id="log"></pre>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 """Laptop companion for the launcher on the glasses.
 
-    python frame_host.py
+    python frame_host.py            # laptop radio
+    python frame_host.py --relay    # through the phone (relay_server.py + phone page)
 
 Leave this running. It waits for the glasses to appear, connects, and listens.
 When you pick an app on the glasses (menu in device/main.lua, two taps), the
@@ -47,12 +48,19 @@ class Companion:
     def __init__(self) -> None:
         self.launch: asyncio.Queue[str] = asyncio.Queue()
         self.dropped = asyncio.Event()
+        self.last_status = None
 
     def on_print(self, text: str) -> None:
         for line in text.splitlines():
             line = line.strip()
             if line.startswith("launch:"):
                 self.launch.put_nowait(line[len("launch:"):])
+            elif line.startswith("status:"):
+                _, pct, chg, fw = (line.split(":") + ["", "", ""])[:4]
+                state = {"1": "charging", "0": "on battery"}.get(chg, "")
+                if (pct, state) != self.last_status:
+                    log(f"glasses: {pct}% {state} {fw}")
+                    self.last_status = (pct, state)
             elif line:
                 log(f"glasses: {line}")
 
@@ -109,6 +117,13 @@ class Companion:
 
 
 if __name__ == "__main__":
+    if "--relay" in sys.argv:
+        # go through the phone: this process and every launched app
+        import frame_relay
+        frame_relay.install()
+        for k, cmd in APPS.items():
+            APPS[k] = [PY, str(ROOT / "frame_relay.py")] + cmd[1:]
+        log("relay mode: Bluetooth via the phone (relay_server.py must be running)")
     try:
         asyncio.run(Companion().run())
     except KeyboardInterrupt:
