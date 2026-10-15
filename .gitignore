@@ -12,3 +12,10 @@ __pycache__/
 firmware/src/
 firmware/nrfutil-venv/
 firmware/schematics/
+
+# Android build
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
