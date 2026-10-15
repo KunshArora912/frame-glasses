@@ -17,6 +17,15 @@
 -- Panel facts: every frame is redrawn in full (show() clears the buffer),
 -- glyphs are 48 px tall, nothing may be drawn below y = 352.
 
+-- Register the tap handler before anything else: the firmware runs the tap
+-- hook in whatever Lua is executing, and a tap landing before this line would
+-- otherwise find no callback (fixed in firmware fix4, but keep the window tiny).
+local taps, last_tap = 0, 0
+frame.imu.tap_callback(function()
+    taps = taps + 1
+    last_tap = frame.time.utc()
+end)
+
 local APPS = {
     { id = 'assistant', label = 'Assistant' },
     { id = 'shell',     label = 'Shell' },
@@ -122,13 +131,6 @@ end
 local function blank()
     frame.display.show()
 end
-
--- taps are counted in the callback and resolved as a group in the loop
-local taps, last_tap = 0, 0
-frame.imu.tap_callback(function()
-    taps = taps + 1
-    last_tap = now()
-end)
 
 local t0 = now()
 local mode = 'status'

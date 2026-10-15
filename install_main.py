@@ -72,17 +72,18 @@ async def main() -> int:
         await frame.upload_file(str(LUA), "main.lua")
 
         r = await frame.send_lua("local f=frame.file.open('main.lua','read') local n=0 "
-                                 "while true do local c=f:read() if c==nil or #c==0 then break end n=n+#c end "
+                                 "while true do local c=f:read('*a') if c==nil or #c==0 then break end n=n+#c end "
                                  "f:close() print(n)", await_print=True, timeout=10)
-        log(f"on-device size -> {r}")
+        log(f"on-device size -> {r} (local {len(src.encode())}, newlines count once)")
 
         prints.clear()
         log("restarting Lua so main.lua runs")
         await frame.send_reset_signal()
         await asyncio.sleep(2.5)
 
-        banner = [p for p in prints if "main.lua" in p]
-        errors = [p for p in prints if "error" in p.lower() or "attempt to" in p or ":" in p and "lua" in p.lower() and "main.lua:" in p]
+        banner = [p for p in prints if "wake screen" in p]
+        # a Lua error looks like  [string "main.lua"]:20: attempt to call a nil value
+        errors = [p for p in prints if '"main.lua"]:' in p or "attempt to" in p]
         if banner:
             log(f"running: {banner[0].strip()}")
         else:

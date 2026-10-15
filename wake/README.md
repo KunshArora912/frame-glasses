@@ -84,3 +84,29 @@ Verified on hardware 2026-10-15 (watcher log, `wake/wake_watch.py`):
 docked sleep -> lifted off cradle -> advertising 2 s after boot;
 idle sleep (30 s timeout, off cradle) -> silent 47 s -> three taps ->
 advertising 1.4 s after boot, screen on.
+
+## fix4 (2026-10-15 17:07) -- tap callback vs VM reset
+
+Found while installing `device/main.lua`: imu.c keeps the Lua registry
+reference of the tap callback in a C static. A Lua VM reset (0x04, which
+`stop_frame_app()` and the installer send) creates a fresh registry, so the
+next tap ran the hook with a stale integer, `lua_rawgeti` gave nil, and
+`luaL_error` killed whatever was running:
+
+    [string "main.lua"]:20: attempt to call a nil value (hook '?')
+
+That drops the device onto the "Frame is Paired" screen. fix4
+(`wake/apply_imu_fix4.py`) clears the reference when the IMU library is opened
+for a new VM and skips the call unless the registry entry is a function.
+Upstream firmware has the same bug.
+
+## Wake screen + launcher (device/main.lua)
+
+`python install_main.py` puts `device/main.lua` on the glasses (redo after
+every DFU). It draws battery / charging state on every wake and offers a
+tap menu that prints `launch:<id>`; `python frame_host.py` on the laptop
+starts the matching program. Behaviour is covered by
+`device/test_main_lua.py`, which runs the real Lua against a fake `frame`
+table (lupa). Never run the installer in a retry loop: each run sends a break
+and a reset, which is indistinguishable from the glasses "randomly" rebooting
+to the paired screen.
