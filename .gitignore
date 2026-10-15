@@ -1,0 +1,14 @@
+# local machine / device identifiers and secrets
+frame_local.py
+.env
+*.pem
+# generated output, personal notes
+out/
+thoughts.json
+script.txt
+# build environments and third-party source checkouts
+.venv/
+__pycache__/
+firmware/src/
+firmware/nrfutil-venv/
+firmware/schematics/
