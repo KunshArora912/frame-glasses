@@ -57,14 +57,24 @@ class SttClient:
                          timeout: float = 60.0) -> tuple[str, float]:
         if not self.running:
             raise RuntimeError("stt worker is not running")
+        # The pipe is a FIFO with no request ids. If an earlier call was
+        # cancelled while waiting, its reply is still coming: drain it first
+        # or this call would read the previous utterance's text as its own.
+        owed = getattr(self, "_owed", 0)
+        while owed:
+            await asyncio.wait_for(self._proc.stdout.readline(), timeout=timeout)
+            owed -= 1
+            self._owed = owed
         self._tmp.write_bytes(pcm)
         req = json.dumps({"pcm": str(self._tmp), "rate": rate,
                           "depth": depth}) + "\n"
         self._proc.stdin.write(req.encode())
         await self._proc.stdin.drain()
+        self._owed = owed + 1
 
         line = await asyncio.wait_for(self._proc.stdout.readline(),
                                       timeout=timeout)
+        self._owed -= 1
         if not line:
             raise RuntimeError("stt worker closed unexpectedly")
         msg = json.loads(line.decode().strip())

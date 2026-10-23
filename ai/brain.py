@@ -177,6 +177,9 @@ class ClaudeCliBrain:
         except asyncio.TimeoutError:
             proc.kill()
             raise RuntimeError("claude CLI timed out")
+        except asyncio.CancelledError:
+            proc.kill()                      # the caller gave up; do not leave it running
+            raise
 
         text = out.decode(errors="replace").strip()
         if proc.returncode != 0 and not text:

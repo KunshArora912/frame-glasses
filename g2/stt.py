@@ -55,11 +55,11 @@ class Endpointer:
         """Returns 'wait', 'voice', 'silence', 'done' or 'timeout'."""
         self.elapsed += dt
         self.peak = max(self.peak, level)
-        if level < self.floor:
-            self.floor = level
-        else:
-            self.floor += (level - self.floor) * 0.02          # slow upward drift
         voiced = level > max(self.floor + VOICE_ABOVE_FLOOR_DB, VOICE_MIN_DBFS)
+        if level < self.floor:
+            self.floor = max(level, -70.0)       # one digital-silence block must not sink it
+        elif not voiced:
+            self.floor += (level - self.floor) * 0.02   # drift up on room noise only
         if self.started is None:
             if voiced:
                 self.started = self.elapsed
@@ -133,16 +133,25 @@ class Speech:
         self._chunks, self._listening, self._wake = [], True, asyncio.Event()
         kept = bytearray()
         pending = bytearray()
+        dec = getattr(self.gw, "decoder", None)
+        if dec is not None and hasattr(dec, "reset"):
+            dec.reset()                                  # forget the previous session
         await self.gw.mic(True)
         t_last = time.time()
+        got_any = False
         try:
             while True:
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=1.0)
                 except asyncio.TimeoutError:
                     if time.time() - t_last > 3.0:          # mic stream died
-                        return bytes(kept) if ep.started is not None else None
+                        if ep.started is not None:
+                            return bytes(kept)
+                        if not got_any:
+                            raise RuntimeError("no audio from the glasses (mic stream never started)")
+                        return None
                     continue
+                got_any = True
                 self._wake.clear()
                 t_last = time.time()
                 while self._chunks:

@@ -179,6 +179,7 @@ class Launcher:
     async def home(self) -> None:
         await self.leave_current()
         self.screen = "home"
+        self.last_input = self.clock()   # arriving home counts as activity
         await self.show_home()
 
     async def leave_current(self) -> None:
@@ -208,6 +209,10 @@ class Launcher:
         if self.screen == "blank":
             await self.home()
             return
+        if self.screen == "parked":
+            return
+        if gesture not in ("single_tap", "double_tap", "swipe_up", "swipe_down", "long_press_release"):
+            return                       # foreground_enter/exit etc. are surface notices
         if gesture == "double_tap":
             if self.screen == "home":
                 await self.show_home()
@@ -230,13 +235,31 @@ class Launcher:
         elif self.busy and not self.busy.done():
             self.busy.cancel()
             self.assistant_state = "idle"
+            if self.screen == "assistant":
+                self.shown = self.assistant_text(["Interrupted: glasses went away.", "", "Tap to try again."])
+            elif self.screen == "notes":
+                self.status_note = "interrupted"
+                self.shown = self.notes_text()
 
     async def on_reinit(self, reason=None) -> None:
-        # The firmware treats a double tap as "exit this app"; the gateway
-        # then shuts the page down and rebuilds it. We never see that double
-        # tap as a touch, so a page_shutdown IS the user's "back to home".
-        if reason == "page_shutdown":
-            log.info("user exited the app (double tap); back to home")
+        # The firmware treats a double tap as "exit this app". With the
+        # gateway's park_on_exit the native dashboard stays visible
+        # (page_parked) until the user picks us from the glasses menu
+        # (dashboard_launch) or a program draws (display_request/page_create).
+        # Without park_on_exit the gateway rebuilds the page at once
+        # (page_shutdown); either way the user asked to leave: stop the mic.
+        if reason == "page_parked":
+            log.info("user left the app; parked behind the native dashboard")
+            await self.leave_current()
+            self.screen = "parked"
+            self.sel = 0
+            return
+        if reason == "display_request":
+            if self.screen == "parked":
+                self.screen = "home"       # a program drew while parked; follow it
+            return                         # otherwise it was our own write
+        if reason in ("page_shutdown", "dashboard_launch", "page_create"):
+            log.info("app (re)entered (%s); home", reason)
             await self.home()
             return
         log.info("gateway reinitialised (%s); redrawing", reason)
@@ -252,6 +275,8 @@ class Launcher:
             await self.show_home()
 
     async def redraw(self) -> None:
+        if self.screen == "parked":
+            return
         if self.screen == "home":
             await self.show_home()
         elif self.screen == "blank":
@@ -260,6 +285,8 @@ class Launcher:
             await self.show(self.shown)
 
     async def tick(self) -> None:
+        if self.screen == "parked":
+            return
         if self.screen == "home":
             if self.clock() - self.last_input >= self.idle_blank_s:
                 await self.blank()
@@ -300,12 +327,10 @@ class Launcher:
         await opener()
 
     # -------------------------------------------------------- assistant
-    def assistant_text(self, body: list[str], hint: str = "tap = ask   double tap = home") -> str:
-        head = f"Assistant{'':<11}{hint}"
-        more = ""
-        if self.pages and len(self.pages) > 1:
-            more = f"   page {self.page + 1}/{len(self.pages)}"
-        return "\n".join([head + more, ""] + body)
+    def assistant_text(self, body: list[str], hint: str = "tap = ask      double tap = exit") -> str:
+        if self.assistant_state == "answer" and len(self.pages) > 1:
+            hint = f"tap = more  {self.page + 1}/{len(self.pages)}   double tap = exit"
+        return "\n".join([f"{'Assistant':<12}{hint}"[:COLS], ""] + body)
 
     async def open_assistant(self) -> None:
         self.pages, self.page, self.question = [], 0, ""
@@ -321,7 +346,7 @@ class Launcher:
             return
         if self.assistant_state == "answer" and self.page < len(self.pages) - 1:
             self.page += 1
-            await self.show(self.assistant_text(self.pages[self.page], "tap = more   double tap = home"))
+            await self.show(self.assistant_text(self.pages[self.page], "tap = more   double tap = exit"))
             return
         self.busy = asyncio.create_task(self._ask(), name="g2-ask")
 
@@ -347,7 +372,7 @@ class Launcher:
             self.pages = paginate(f"You: {text}\n\n{answer}")
             self.page = 0
             self.assistant_state = "answer"
-            hint = "tap = more   double tap = home" if len(self.pages) > 1 else "tap = ask again   double tap = home"
+            hint = "tap = more   double tap = exit" if len(self.pages) > 1 else "tap = ask again   double tap = exit"
             await self.show(self.assistant_text(self.pages[0], hint))
         except asyncio.CancelledError:
             raise
@@ -358,14 +383,14 @@ class Launcher:
 
     # ------------------------------------------------------- transcribe
     def transcribe_text(self, hint: str = "double tap = stop") -> str:
-        head = f"Transcribe{'':<10}{hint}"
+        head = f"{'Transcribe':<12}{hint}"[:COLS]
         body = self.caption_lines[-BODY_ROWS:] or ["listening ..."]
         return "\n".join([head, ""] + body)
 
     async def open_transcribe(self) -> None:
         self.caption_lines = []
         if self.speech is None or not self.speech.available:
-            await self.show("Transcribe          double tap = home\n\nspeech-to-text is not running on the laptop")
+            await self.show("Transcribe  double tap = exit\n\nspeech-to-text is not running on the laptop")
             return
         self.transcripts_dir.mkdir(parents=True, exist_ok=True)
         self.caption_file = self.transcripts_dir / f"{self.now():%Y-%m-%d_%H%M%S}.txt"
@@ -393,8 +418,8 @@ class Launcher:
             await self.show(self.transcribe_text())
 
     # ------------------------------------------------------------ notes
-    def notes_text(self, hint: str = "tap = new   swipe = scroll   double = home") -> str:
-        head = f"Notes{'':<15}{hint}"
+    def notes_text(self, hint: str = "tap new   swipe scroll   2 taps exit") -> str:
+        head = f"{'Notes':<12}{hint}"[:COLS]
         items = self.store.pending() if self.store is not None else []
         rows = BODY_ROWS - (1 if self.status_note else 0)
         if not items:
@@ -455,7 +480,7 @@ class Launcher:
         left, right = st.get("left") or {}, st.get("right") or {}
         up = int(self.clock() - self.started_at)
         lines = [
-            f"Status{'':<14}tap = refresh   double tap = home",
+            f"{'Status':<12}tap = refresh   double tap = exit",
             "",
             f"glasses   {'ready' if getattr(gw, 'ready', False) else 'away'} ({getattr(gw, 'phase', '?')})   "
             f"L {'on' if left.get('connected') else 'off'}  R {'on' if right.get('connected') else 'off'}",
@@ -464,7 +489,7 @@ class Launcher:
             f"speech    {('ready, ' + self.speech.model) if (self.speech and self.speech.available) else 'off'}",
             f"brain     {brain_name(self.brain)}",
             f"launcher  up {up // 3600:d}h {up % 3600 // 60:02d}m   last gesture {getattr(gw, 'last_gesture', None) or '-'}",
-            "data stays on this laptop: no phone app, no cloud",
+            "all data stays on this laptop",
         ]
         return "\n".join(lines)
 

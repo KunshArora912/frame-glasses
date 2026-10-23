@@ -199,9 +199,9 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         s = self.gw.shown[-1]
         self.assertIn("You: buy milk tomorrow", s)
         self.assertIn("forty-two", s)
-        self.assertIn("page 1/", s)
+        self.assertIn(" 1/2", s)
         await self.gw.emit("touch", "single_tap", 1)          # next page
-        self.assertIn("page 2/", self.gw.shown[-1])
+        self.assertIn(" 2/2", self.gw.shown[-1])
         await self.gw.emit("touch", "double_tap", 1)
         self.assertEqual(self.la.screen, "home")
 
@@ -256,6 +256,58 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.gw.mic_calls[-1], False)
         self.assertEqual(self.la.screen, "home")
 
+    async def test_parked_waits_for_relaunch_and_ignores_touches(self):
+        await self.gw.emit("touch", "swipe_down", 1)
+        await self.gw.emit("touch", "single_tap", 1)          # transcribe, mic on
+        n = len(self.gw.shown)
+        await self.gw.emit("reinit", "page_parked")
+        self.assertEqual(self.la.screen, "parked")
+        self.assertEqual(self.gw.mic_calls[-1], False)
+        await self.gw.emit("touch", "single_tap", 1)
+        await self.la.tick()
+        await self.gw.emit("connection", True, "ready")
+        self.assertEqual(len(self.gw.shown), n)                 # nothing drawn while parked
+        await self.gw.emit("reinit", "dashboard_launch")
+        self.assertEqual(self.la.screen, "home")
+        self.assertIn("> Assistant", self.gw.shown[-1])
+
+    async def test_every_screen_fits_the_grid(self):
+        def check(label):
+            s = self.gw.shown[-1]
+            self.assertLessEqual(len(s.splitlines()), 10, label)
+            for line in s.splitlines():
+                self.assertLessEqual(len(line), 48, f"{label}: {line!r}")
+        for _ in range(3):
+            await self.gw.emit("touch", "swipe_down", 1)
+        await self.gw.emit("touch", "single_tap", 1); check("status")
+        await self.gw.emit("touch", "double_tap", 1)
+        await self.gw.emit("touch", "swipe_up", 1)
+        await self.gw.emit("touch", "single_tap", 1); check("notes")
+        await self.gw.emit("touch", "single_tap", 1); await settle(self.la); check("notes saved")
+        await self.gw.emit("touch", "double_tap", 1)
+        await self.gw.emit("touch", "swipe_up", 1)
+        await self.gw.emit("touch", "single_tap", 1); check("transcribe")
+        await self.speech.captions("word " * 30); check("transcribe captions")
+        await self.gw.emit("touch", "double_tap", 1)
+        await self.gw.emit("touch", "swipe_up", 1)
+        await self.gw.emit("touch", "single_tap", 1); check("assistant")
+        await self.gw.emit("touch", "single_tap", 1); await settle(self.la); check("assistant answer p1")
+        await self.gw.emit("touch", "single_tap", 1); check("assistant answer p2")
+
+    async def test_home_after_long_session_is_not_blanked_by_next_tick(self):
+        await self.gw.emit("touch", "single_tap", 1)          # assistant
+        self.clock.t += 600
+        await self.gw.emit("reinit", "page_shutdown")           # firmware double tap
+        self.assertEqual(self.la.screen, "home")
+        await self.la.tick()
+        self.assertEqual(self.la.screen, "home")
+
+    async def test_surface_notices_are_not_gestures(self):
+        n = len(self.gw.shown)
+        await self.gw.emit("touch", "foreground_exit", None)
+        await self.gw.emit("touch", "foreground_enter", None)
+        self.assertEqual(len(self.gw.shown), n)
+
     def test_paginate_respects_rows_and_width(self):
         pages = paginate("word " * 400)
         self.assertTrue(all(len(p) <= 8 for p in pages))
@@ -279,6 +331,11 @@ class EndpointerTests(unittest.TestCase):
         self.assertLess(abs(start - len(quiet)) / 32000, 0.3)              # within 300 ms
         self.assertGreater(end, len(quiet) + len(voice))                    # includes trailing silence
         self.assertLess(end, len(quiet) + len(voice) + 32000 * 1.6)        # stopped about 1.2 s after
+
+    def test_sustained_speech_is_not_cut_by_floor_drift(self):
+        quiet, voice = tone(2.0, 0.002), tone(8.0, 0.1)
+        start, end = stt.find_utterance(quiet + voice + tone(3.0, 0.002))
+        self.assertGreaterEqual(end, len(quiet) + len(voice))
 
     def test_timeout_when_nobody_speaks(self):
         self.assertIsNone(stt.find_utterance(tone(8.0, 0.002)))

@@ -94,13 +94,28 @@ class G2Gateway:
                     self.gateway_up = True
                     self._announced = False
                     await self._emit("gateway", True)
-                    async for m in ws:
-                        if m.type != aiohttp.WSMsgType.TEXT:
-                            continue
+                    # Read and dispatch on separate tasks: the gateway drops a
+                    # client whose socket backs up (128 events, ~6 s of mic
+                    # audio), so a slow handler must never stall the reader.
+                    queue: asyncio.Queue = asyncio.Queue()
+                    consumer = asyncio.create_task(self._consume(queue), name="g2-gateway-dispatch")
+                    try:
+                        async for m in ws:
+                            if m.type != aiohttp.WSMsgType.TEXT:
+                                continue
+                            try:
+                                e = json.loads(m.data)
+                            except ValueError:
+                                continue
+                            if e.get("kind") == "glasses.mic_audio" and queue.qsize() > 100:
+                                continue                      # shed audio before text events
+                            queue.put_nowait(e)
+                    finally:
+                        consumer.cancel()
                         try:
-                            await self._dispatch(json.loads(m.data))
-                        except Exception:
-                            log.exception("bad event")
+                            await consumer
+                        except (asyncio.CancelledError, Exception):
+                            pass
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -112,6 +127,14 @@ class G2Gateway:
                 await self._emit("gateway", False)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 10.0)
+
+    async def _consume(self, queue: asyncio.Queue) -> None:
+        while True:
+            e = await queue.get()
+            try:
+                await self._dispatch(e)
+            except Exception:
+                log.exception("bad event")
 
     def _set_ready(self, ready: bool, phase: str) -> bool:
         changed = ready != self.ready
