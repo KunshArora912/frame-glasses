@@ -44,6 +44,7 @@ git reset -q
 | Raw inbound events | `--raw-events` / `ble.raw_events: true` emits `glasses.raw_packet {"source","size","hex","char"}` for every `5402` notification on both lenses before the gateway parses it (so consumed/acked frames are included), and for every `7402` EvenFile notification (`"char": "7402"`; the gateway subscribes to `7402` on both lenses, best-effort, and never parses those frames). `--raw-events-audio` adds the `6402` mic characteristic. `--debug-raw-events` is now an alias. |
 | Park on exit | `--park-on-exit` / `display.park_on_exit: true`: on `page_shutdown` (cmd 9/10 or ack error 9) the gateway does not recreate its page; it sets `display_surface="dashboard"`, `parked=true`, and emits `system.reinitialize {"reason": "page_parked"}`. Page is recreated on (1) launch from the gateway's own dashboard menu entry (`glasses.dashboard {"action":"launched"}` + `system.reinitialize {"reason":"dashboard_launch"}`), (2) any `POST /api/display` (`reason: "display_request"`), (3) `POST /api/page {"create": true}` (`reason: "page_create"`). Default behaviour (auto-recreate, `reason: "page_shutdown"`) is unchanged. An explicit `/api/page shutdown` parks even without the flag. |
 | Heartbeat while parked | `--park-stops-heartbeat` / `display.park_stops_heartbeat` (default: follows `park_on_exit`; `--no-park-stops-heartbeat` / `false` overrides): while `parked` the EvenHub heartbeat loop (SID 0xE0 cmd 12, right lens, `heartbeat_interval_sec`) skips its sends so the firmware dashboard redraws pushed widget content; the task itself stays alive (background-task watchdog untouched, DevSettings heartbeat unchanged) and sends resume within one interval after page create / `/api/display` / menu launch / reconnect. `/api/status` exposes `server.park_stops_heartbeat`. |
+| Foreground launch (fw 2.3.2.14) | Live capture 2026-10-23: picking the gateway's `Launch` entry while parked produces no cmd 17, only SID `0x0D` `{1:1, 3:{1:224}}` (EvenHub pushed to the foreground) followed by OS events 5 and 7 in the same second. The gateway now parses SID `0x0D` (`events.parse_gesture_ctrl_response`); a foreground push of app `0xE0` while parked immediately recreates the page + cached display (same path as cmd 17), resumes the heartbeat, emits `glasses.dashboard {"action":"launched","app_id":224,"via":"foreground"}` and `system.reinitialize {"reason":"dashboard_launch"}`. Exit gestures (5/6/7) within 1.5 s of any launch are logged and still emitted as `glasses.touch`, but ignored for surface/page tracking. cmd 17 path kept (`"via":"menu"`). |
 | Long press | OS event types 9/10 become gestures `long_press` / `long_press_release` (constants, mapping, `/api/touch` allow-list, MCP `wait_for_touch` allow-list). |
 | Status | `/api/status` and `status.snapshot` gain `glasses.parked`; `server.raw_events`, `server.raw_events_audio`, `server.park_on_exit`, `server.park_stops_heartbeat`. `display_surface` was already present. |
 | Tests | `tests/test_raw_api.py`, `tests/test_gesture_mapping.py`, `tests/test_park_state.py`, shared `tests/_support.py` (fake Bleak client, protobuf payload builders). |
@@ -56,13 +57,16 @@ Files touched: `gateway_server.py`, `gateway_config.py`, `gateway_mcp.py`, `ment
 
 Everything above is unit-tested with a mocked BLE layer only. Still to confirm on the glasses:
 whether the native dashboard actually stays visible while the gateway's EvenHub heartbeat (0xE0 cmd 12,
-every 5 s) keeps running in the parked state; that the glasses deliver cmd 17 for the `Launch` entry
-after a parked exit; that firmware emits event types 9/10 for a pure long press; and write-with-response
+every 5 s) keeps running in the parked state; that firmware emits event types 9/10 for a pure long press; and write-with-response
 behaviour on `5401`. Also unverified: that firmware 2.3.2.14 exposes `7401`/`7402` under service `0e8ac72e7450`
 (the GATT dump in `g2/README.md` history showed 01 write-without-response / 02 notify there, so the gateway
 subscribes best-effort and only logs a warning if `7402` is missing); that EvenFile replies really arrive on
 `7402` rather than only on `5402`; and that holding the heartbeat while parked makes the native dashboard
 redraw pushed widgets without the firmware treating the plugin as gone (nothing in the gateway reacts to a
-missing heartbeat; whether the glasses do is a firmware question).
+missing heartbeat; whether the glasses do is a firmware question). Settled on hardware 2026-10-23: the glasses do
+**not** deliver cmd 17 for the `Launch` entry after a parked exit (they push app 0xE0 to the foreground on SID 0x0D
+and exit again within the second), hence the foreground-launch path. Still open: whether the page created in
+response arrives in time for the firmware to show it, or whether the user has to pick `Launch` twice; and whether
+firmware ever emits cmd 9/10 (which would re-park) during that empty-page exit.
 
-2026-10-23: added `POST /api/raw` `"char": "7401"` (EvenFile write) + `7402` raw events, and `display.park_stops_heartbeat` (hold the EvenHub heartbeat while parked); 76 unit tests pass; patch regenerated (`git add -N` test files, full `git diff --binary`).
+2026-10-23: added `POST /api/raw` `"char": "7401"` (EvenFile write) + `7402` raw events, `display.park_stops_heartbeat` (hold the EvenHub heartbeat while parked), and the SID 0x0D foreground-launch path with a 1.5 s exit grace window; 82 unit tests pass; patch regenerated (`git add -N` test files, full `git diff --binary`).
