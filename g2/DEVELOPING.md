@@ -134,14 +134,31 @@ Paste something like:
 > preview pomodoro --gestures tap` and fix anything it flags. Do not touch the
 > gateway or launcher.
 
-## 6. The lower layers (when an app is not enough)
+## 6. The apps that ship
+
+| file | menu entry | what |
+|---|---|---|
+| `apps/assistant.py` | Assistant | tap, ask by voice, read the answer |
+| `apps/transcribe.py` | Transcribe | live captions saved to a file |
+| `apps/notes.py` | Notes | speak a note, keep it in thoughts.json |
+| `apps/status.py` | Status | glasses, gateway, speech, brain |
+| `apps/teleprompter.py` | hidden | page fallback; the real Teleprompt is the firmware app hosted by `g2/native_apps.py` |
+| `apps/translate.py` | hidden | captions fallback; the real Translate is the firmware app hosted by `g2/native_apps.py` |
+| `apps/conversate.py` | hidden | transcript + summary fallback; native version is `NativeApps.conversate_open` |
+| `apps/settings.py` | hidden | fallback; use `python g2/settings_cli.py show|set <key> <value> [--dry-run]` |
+
+Hidden apps stay out of the menu but open with `python g2/dev.py push <name>` and preview as usual.
+Firmware-native Teleprompt / Translate: `python g2/native_apps.py` (standalone) or `NativeApps(hub.glasses, ...).attach()`
+in the hub; scripts go in `g2/data/teleprompter/`.
+
+## 7. The lower layers (when an app is not enough)
 
 - `g2/gateway_client.py`: the gateway's HTTP/WebSocket API in Python (display, mic, events).
 - `g2/native/`: the firmware's native protocol (dashboard widgets, settings, menu, notifications, Even AI) over the gateway's `/api/raw`. See `g2/native/README.md` for what is verified and what is not.
 - `g2/vendor/men-g2-ble-gateway/`: the Bluetooth gateway itself (third party, MIT), with our patch in `g2/patches/`.
 - `g2/docs/`: protocol research, positioning rules, and the Even-app feature catalogue.
 
-## 7. When something is off
+## 8. When something is off
 
 | symptom | try |
 |---|---|

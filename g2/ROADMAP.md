@@ -30,16 +30,16 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 
 | # | Feature (Even's app) | Our piece | State |
 |---|---|---|---|
-| 1 | Dashboard: time, date, battery | firmware + hub time sync | verified live (owner: dashboard looks right; time sync acked) |
+| 1 | Dashboard: time, date, battery | firmware + hub time sync (`hub.py` TimeFeed, hourly, acked) | verified live (owner: dashboard looks right; time sync acked); hub feed implemented, its hourly push hardware check pending (`python g2/hub.py --once time`) |
 | 2 | Dashboard: weather | hub weather feed (Open-Meteo opt-in) | **VERIFIED LIVE 2026-10-23 15:46**: 21° + sun icon drawn bottom-left of the native dashboard once the gateway held its EvenHub heartbeat while parked (gateway patch v2) |
-| 3 | Dashboard: calendar, news, tasks/quick notes | hub feeds (local .ics, RSS, thoughts.json) | wave 1 |
-| 4 | Menu: our entries + launch | gateway menu entry + park/relaunch | Launch from the glasses menu did nothing (2026-10-23 15:30); capture in progress |
+| 3 | Dashboard: calendar, news, tasks/quick notes | hub feeds (local .ics, RSS, thoughts.json) | implemented, hardware check pending (`--once calendar|news|tasks`) |
+| 4 | Menu: our entries + launch | hub menu push (Even built-ins + "Laptop" = the gateway's Launch id 10421, pushed after the gateway's own menu) + launcher starts parked | implemented, hardware check pending (`--once menu`); earlier: Launch from the glasses menu did nothing (2026-10-23 15:30), capture in progress |
 | 5 | Even AI (voice assistant) | `g2/even_ai.py:EvenAI` (wake -> ENTER -> 2 s heartbeat -> mic -> local STT -> ASK/ANALYSE/REPLY -> EXIT) + local Whisper + brain; hook: `self.even_ai = even_ai.attach(self)` once the hub's Glasses is up; `python g2/even_ai.py --simulate "..."` prints every frame | **implemented, hardware check pending** (21 tests on fakes; verify: wake frame lens/bytes, mic streams after ENTER without the EvenHub toggle, end flag `6:1`, EXIT on double tap) |
-| 6 | Teleprompter | app over native teleprompter frames (text files) | wave 1 |
-| 7 | Translate | app: local STT + offline translation (argos) | wave 1 |
-| 8 | Conversate / live transcription + summary | Transcribe app + local summary | wave 1 extends existing app |
-| 9 | QuickNote / Reminders | Notes app + hub quick-list push | partly live (Notes); push in wave 1 |
-| 10 | Settings: brightness, height, distance, head-up angle, silent, wear, timeout | Settings app over native settings | wave 1 |
+| 6 | Teleprompter | `g2/native_apps.py` hosts the firmware Teleprompt (menu launch: FILE_LIST / FILE_SELECT / START / PAGE_DATA / heartbeat) from `g2/data/teleprompter/*.txt`; hidden board fallback `apps/teleprompter.py` | implemented, hardware check pending (all SID 0x06 frames DECODED) |
+| 7 | Translate | `g2/native_apps.py` hosts the firmware Translate (OPEN / RESULT / heartbeat / LANG_SWITCH) with local STT + argostranslate when installed, captions only otherwise; hidden board fallback `apps/translate.py` | implemented, hardware check pending (all SID 0x05 frames DECODED) |
+| 8 | Conversate / live transcription + summary | `NativeApps.conversate_open`: live transcript on the firmware Translate surface (same-language pair) + brain summary pushed and saved; the real Conversate channel (menu id 11 / SID 0x0B) is not decoded; hidden board fallback `apps/conversate.py` | implemented, hardware check pending |
+| 9 | QuickNote / Reminders | Notes app + hub quick-list push (TasksFeed) | implemented, hardware check pending (`--once tasks`; Notes app live) |
+| 10 | Settings: brightness, height, distance, head-up angle, silent, wear, timeout | laptop CLI `g2/settings_cli.py show|set|keys` (`--dry-run` prints frames) over native settings; hidden board fallback `apps/settings.py` | implemented, hardware check pending (height/distance SET are DECODED) |
 | 11 | Notifications from the phone | Android companion notification listener -> relay -> native notification frames | wave 2 (needs gateway 7401 char) |
 | 12 | Navigate | Android GPS -> relay -> laptop; Valhalla routing (nav/); native navigation frames | wave 2 |
 | 13 | Head movements (IMU) for apps | gateway imuControl + events; head-up handled by firmware settings | wave 2 |
