@@ -81,3 +81,38 @@ LC3 parameters (10 ms, 40 B, 16 kHz) are right for firmware 2.3.2.14.
 - `native/`: the firmware's native protocol (dashboard widgets, settings, menu, notifications, Even AI) over the gateway's raw-frame endpoint; `native/probe.py` is the hardware check. First live result 2026-10-23: settings READ answered (battery, distance, head-up angle), weather push acked.
 - `gateway_client.py`, `stt.py`, `lc3dec.py`, `mic_record.py`: the plumbing underneath.
 - `docs/`: protocol research, positioning and gesture rules, Even app feature catalogue.
+
+## Hub (`hub.py`): the firmware's own dashboard and menu, fed from the laptop
+
+The glasses' native watchface and menu are the interface; our EvenHub board only appears when
+"Laptop" is picked from the glasses menu. `g2/hub.py` owns the process's one native `Glasses`
+instance (apps get it as `ctx.native`, the hub as `ctx.hub`) and runs:
+
+- feeds, each its own asyncio task with interval + jitter, errors retried next interval:
+  `time` (hourly 0x80 TIME_SYNC, acked), `weather` (Open-Meteo, opt-in, lat/lon only),
+  `calendar` (local `*.ics` in `g2/data/calendar`, next 5 of today/tomorrow), `news` (RSS/Atom
+  URLs, opt-in, newest 5 into the V3 FIFO), `tasks` (pending thoughts from `thoughts.json`, re-pushed
+  when the file changes). Every push goes through the `Glasses` helper (heartbeat start -> push -> ack
+  -> heartbeat stop) under `hub.lock`, so feeds never interleave.
+- the menu: Even's built-ins (Even AI, Teleprompt, Translate, Navigate, Conversate, Notifications,
+  Silent mode, Dashboard) plus one plugin entry "Laptop" that reuses the gateway's own Launch id
+  (10421), so picking it still makes the gateway rebuild the board. Ordering: the gateway pushes its
+  2-entry menu fire-and-forget in its connect/reconnect sequence; the hub pushes `menu.delay_s` after
+  start and after the gateway reports ready, and `menu.repush_delay_s` after any SID 0x03 reply it did
+  not ask for (the glasses acking the gateway's push). Pending pushes coalesce.
+- keep-alive (60 s, left then right; re-armed `keepalive.retry_s` after two missed echoes).
+- `hub.on_native_app(cb)`: selections of the glasses' own apps (0x0D foreground push, Navigate /
+  Teleprompt / Translate / Even AI startup messages, plugin cmd 17) as `NativeAppEvent`s.
+
+Start parked: `run.py` / `launcher.py` default to `--start-parked` (POST `/api/page` shutdown after the
+gateway is ready, nothing drawn on the board until reinit `dashboard_launch` / `page_create`);
+`--board` restores the old draw-home-first behaviour. `--no-hub` (run.py) runs without the hub.
+
+Config: copy `g2/config.example.yaml` to `g2/config/hub.yaml` (gitignored); every key is documented
+there and the defaults keep everything network-related off. Hardware checks without the launcher:
+
+    python g2/hub.py --once weather|calendar|news|tasks|time|menu|all   # one push, acks printed
+    python g2/hub.py                                                    # standalone hub
+
+Tests: `python -m unittest g2.test_hub` (fakes only: ics/RSS/Open-Meteo parsing, fake-clock scheduling,
+push lock, menu ordering, start-parked launcher path, FakeTransport end to end).

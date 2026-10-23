@@ -1,0 +1,62 @@
+# g2/hub.py configuration. Copy to g2/config/hub.yaml (gitignored) and edit.
+# Every key is optional; a missing key takes the default shown here.
+# Defaults are "nothing leaves the laptop": the only network feeds (weather,
+# news) are off, and when on they talk to the open services you name below,
+# with no identifiers. Nothing ever talks to Even.
+
+gateway: http://127.0.0.1:8765     # the local BLE gateway (POST /api/raw + /ws raw events)
+jitter_s: 5                        # random 0..jitter_s added to every feed interval
+stagger_s: 3                       # first runs after start are spaced this far apart
+
+keepalive:
+  enabled: true                    # 60 s keep-alive, left lens then right; two missed echoes = link lost
+  retry_s: 60                      # re-arm the keep-alive this long after a link loss
+
+menu:
+  enabled: true                    # replace the glasses menu with Even's built-ins + one entry for our board.
+                                   # Pushed menu.delay_s after start / after the gateway reports ready (its own
+                                   # 2-entry menu goes out first) and repush_delay_s after any SID 0x03 reply we
+                                   # did not ask for, so ours always lands last. 5..10 items in total.
+  builtin: [7, 6, 5, 8, 11, 4, 266, 1]   # Even AI, Teleprompt, Translate, Navigate, Conversate, Notifications,
+                                         # Silent mode, Dashboard (48 Terminal exists but is left out)
+  plugin_name: Laptop              # our board's entry; empty string = none
+  plugin_app_id: 10421             # the gateway's own "Launch" id (package_name_to_app_id("men-g2-ble-gateway.launch")):
+                                   # keep it so the gateway still rebuilds the board when this entry is picked
+  plugins: []                      # extra entries: - {name: "Other", app_id: 100, icon: 1}   (DECODED, not yet live)
+  delay_s: 5                       # seconds after start / gateway-ready before our push
+  repush_delay_s: 3                # seconds after a foreign SID 0x03 reply before we push again
+
+time:
+  enabled: true                    # 0x80 TIME_SYNC to the right lens, acked
+  interval_s: 3600                 # hourly (the keep-alive's own hourly sync is turned off when this runs)
+
+weather:
+  enabled: false                   # Open-Meteo current weather (no key, no account); needs lat/lon
+  latitude: null                   # e.g. 51.5072
+  longitude: null                  # e.g. -0.1276
+  units: celsius                   # celsius | fahrenheit  (display only; the value sent is always Celsius)
+  interval_s: 900                  # 15 min: heartbeat start -> push -> stop
+  timeout_s: 10
+  endpoint: https://api.open-meteo.com/v1/forecast
+
+calendar:
+  enabled: true                    # local .ics files only
+  folder: g2/data/calendar         # every *.ics in here (relative paths are from the repo root)
+  interval_s: 900
+  max_events: 5                    # next events of today + tomorrow (firmware cap is 8)
+  time_format: 12h                 # 12h -> "10:00 AM-10:30 AM", 24h -> "10:00-10:30"
+
+news:
+  enabled: false                   # RSS 2.0 / RSS 1.0 / Atom, fetched with the stdlib parser
+  urls: []                         # - https://example.org/feed.xml
+  interval_s: 900
+  max_items: 5                     # newest N across all urls (the glasses have 5 FIFO slots)
+  timeout_s: 10
+  content_chars: 600               # article body cut-off
+
+tasks:
+  enabled: true                    # pending thoughts from notes/store.py -> quick list
+  poll_s: 60                       # how often thoughts.json's mtime is checked
+  repush_s: 900                    # full re-push even when unchanged
+  max_items: 20                    # one quicklist packet
+  path: null                       # thoughts.json; null = the notes default (repo root)

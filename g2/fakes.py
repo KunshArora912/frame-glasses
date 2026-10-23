@@ -18,6 +18,7 @@ class FakeGateway:
         self.last_gesture = None
         self.base = "http://fake"
         self.state = {"left": {"connected": True}, "right": {"connected": True}}
+        self.pages: list[dict] = []          # page(shutdown=...) / page(create=...) calls
 
     def on(self, kind, fn):
         self.handlers.setdefault(kind, []).append(fn)
@@ -42,6 +43,11 @@ class FakeGateway:
 
     async def mic(self, on):
         self.mic_calls.append(on)
+
+    async def page(self, *, shutdown=False, create=False, exit_mode=1):
+        body = {"create": True} if create else {"shutdown": True, "exit_mode": exit_mode}
+        self.pages.append(body)
+        return {"accepted": True, **body}
 
     async def status(self):
         return {"glasses": self.state}

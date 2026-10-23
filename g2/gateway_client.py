@@ -218,6 +218,15 @@ class G2Gateway:
     async def clear(self) -> None:
         await self._post("/api/display", {"clear": True})
 
+    async def page(self, *, shutdown: bool = False, create: bool = False, exit_mode: int = 1) -> dict:
+        """POST /api/page.  ``shutdown=True`` drops our page so the firmware's own dashboard shows
+        (exit_mode 1 = the firmware's system-exit path; the gateway parks and emits reinit page_parked);
+        ``create=True`` brings the page back (reinit page_create).  Exactly one of the two."""
+        if shutdown == create:
+            raise ValueError("page(): pass exactly one of shutdown=True or create=True")
+        body = {"create": True} if create else {"shutdown": True, "exit_mode": int(exit_mode)}
+        return await self._post("/api/page", body)
+
     async def mic(self, on: bool) -> None:
         await self._post("/api/mic", {"enabled": bool(on)})
 

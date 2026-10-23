@@ -129,6 +129,17 @@ class AppContext:
         return self._l.store
 
     @property
+    def hub(self):
+        """The native dashboard hub (g2/hub.py), or None when the launcher runs without one."""
+        return getattr(self._l, "hub", None)
+
+    @property
+    def native(self):
+        """The process's shared native Glasses (g2/native) via the hub, or None. Apps never open their own."""
+        hub = self.hub
+        return None if hub is None else hub.glasses
+
+    @property
     def clock(self) -> Callable[[], float]:
         return self._l.clock
 

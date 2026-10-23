@@ -105,6 +105,7 @@ async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--gateway", default=os.environ.get("G2_GATEWAY", "http://127.0.0.1:8765"))
     ap.add_argument("--no-launcher", action="store_true")
+    ap.add_argument("--no-hub", action="store_true", help="launcher without the native dashboard hub (g2/hub.py)")  # --- hub
     a, rest = ap.parse_known_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     stop = asyncio.Event()
@@ -119,7 +120,7 @@ async def main() -> int:
             await asyncio.sleep(1)
         sys.path.insert(0, str(ROOT))
         from g2.launcher import main as launcher_main
-        await launcher_main(["--gateway", a.gateway, *rest])
+        await launcher_main(["--gateway", a.gateway, *([] if a.no_hub else ["--hub"]), *rest])  # --- hub: on by default
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
