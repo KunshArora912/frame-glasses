@@ -181,6 +181,17 @@ class G2Gateway:
     async def layout(self, elements: list[dict], **extra) -> None:
         await self._post("/api/display", {"elements": elements, **extra})
 
+    # Even's own screens keep text off the canvas edge. One inset text
+    # container (16 px sides, 12 px top) looks like theirs and still captures
+    # taps; the gateway updates it in place when only the text changes.
+    INSET = dict(x=16, y=12, width=544, height=264)
+
+    async def text_inset(self, s: str, name: str = "main") -> None:
+        if len(s.encode("utf-8")) > 1000:
+            s = s.encode("utf-8")[:990].decode("utf-8", "ignore")
+        await self.layout([{"type": "text", "text": s or " ", "padding": 0,
+                            "capture_events": True, "container_name": name, **self.INSET}])
+
     async def clear(self) -> None:
         await self._post("/api/display", {"clear": True})
 

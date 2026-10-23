@@ -117,7 +117,8 @@ class Launcher:
             return
         t0 = time.time()
         try:
-            await self.gw.text(text)
+            draw = getattr(self.gw, "text_inset", None) or self.gw.text
+            await draw(text)
         except GatewayError as exc:
             log.warning("display failed: %s", exc)
         dt = time.time() - t0
@@ -483,7 +484,11 @@ async def main(argv=None) -> int:
         speech = Speech(gw, model=a.model)
     from ai.brain import make_brain
     from notes.store import Store
-    brain = make_brain(battery_getter=lambda: gw.battery, prefer=a.brain)
+    async def battery_level() -> float:          # OfflineBrain awaits its getter
+        if gw.battery is None:
+            raise RuntimeError("battery unknown")
+        return float(gw.battery)
+    brain = make_brain(battery_getter=battery_level, prefer=a.brain)
     store = Store()
     launcher = Launcher(gw, speech, brain, store, idle_blank_s=a.idle_blank)
 
