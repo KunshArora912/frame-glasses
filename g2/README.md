@@ -75,4 +75,9 @@ LC3 parameters (10 ms, 40 B, 16 kHz) are right for firmware 2.3.2.14.
 
 ## Our code
 
-Lives next to this file, not in `vendor/`: `mic_record.py` so far.
+- `run.py` starts the gateway (patched, see `patches/`) and the launcher. `dev.py doctor` checks the stack.
+- `launcher.py` + `apps/`: the home screen in Even's arrangement and drop-in apps (Assistant, Transcribe, Notes, Status). **To add a feature, read `DEVELOPING.md`.**
+- `dev.py`: scaffold, preview (PNG), push to the glasses, design layouts, run tests.
+- `native/`: the firmware's native protocol (dashboard widgets, settings, menu, notifications, Even AI) over the gateway's raw-frame endpoint; `native/probe.py` is the hardware check. First live result 2026-10-23: settings READ answered (battery, distance, head-up angle), weather push acked.
+- `gateway_client.py`, `stt.py`, `lc3dec.py`, `mic_record.py`: the plumbing underneath.
+- `docs/`: protocol research, positioning and gesture rules, Even app feature catalogue.
