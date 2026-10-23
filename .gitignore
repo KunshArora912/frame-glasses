@@ -24,3 +24,5 @@ android/.kotlin/
 g2/vendor/
 g2/config/
 g2/recordings/
+g2/transcripts/
+g2/logs/
