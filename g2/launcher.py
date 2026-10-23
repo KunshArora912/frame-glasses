@@ -141,10 +141,45 @@ class Launcher:
         lines.append("swipe = move   tap = open   double tap = home")
         return "\n".join(lines)
 
+    # Even's dashboard: a status area (time, date, battery) on the left and
+    # one card on the right. Same arrangement here, with our menu as the card.
+    def home_elements(self) -> list[dict]:
+        t = self.now()
+        bat = battery_text(getattr(self.gw, "battery", None), getattr(self.gw, "charging", None))
+        status = f"{t:%H:%M}\n{t:%a %d %b}"
+        menu = "\n".join(("> " if i == self.sel else "  ") + name for i, (name, _) in enumerate(MENU))
+        blurb = MENU[self.sel][1]
+        return [
+            {"type": "text", "text": status, "x": 16, "y": 12, "width": 200, "height": 96,
+             "padding": 0, "container_name": "status"},
+            {"type": "text", "text": bat, "x": 16, "y": 116, "width": 200, "height": 60,
+             "padding": 0, "container_name": "battery"},
+            {"type": "text", "text": menu, "x": 232, "y": 12, "width": 328, "height": 164,
+             "padding": 8, "border_width": 1, "border_radius": 4, "capture_events": True,
+             "container_name": "menu"},
+            {"type": "text", "text": blurb, "x": 232, "y": 184, "width": 328, "height": 40,
+             "padding": 8, "container_name": "blurb"},
+            {"type": "text", "text": "swipe  move     tap  open     double tap  exit",
+             "x": 16, "y": 252, "width": 544, "height": 32, "padding": 0, "container_name": "hint"},
+        ]
+
+    async def show_home(self) -> None:
+        self.shown = self.home_text()
+        if not getattr(self.gw, "ready", True):
+            return
+        layout = getattr(self.gw, "layout", None)
+        if layout is None:
+            await self.show(self.home_text())
+            return
+        try:
+            await layout(self.home_elements())
+        except GatewayError as exc:
+            log.warning("home layout failed: %s", exc)
+
     async def home(self) -> None:
         await self.leave_current()
         self.screen = "home"
-        await self.show(self.home_text())
+        await self.show_home()
 
     async def leave_current(self) -> None:
         if self.busy and not self.busy.done():
@@ -175,7 +210,7 @@ class Launcher:
             return
         if gesture == "double_tap":
             if self.screen == "home":
-                await self.show(self.home_text())
+                await self.show_home()
             else:
                 await self.home()
             return
@@ -214,11 +249,11 @@ class Launcher:
 
     async def on_battery(self, level, charging) -> None:
         if self.screen == "home":
-            await self.show(self.home_text())
+            await self.show_home()
 
     async def redraw(self) -> None:
         if self.screen == "home":
-            await self.show(self.home_text())
+            await self.show_home()
         elif self.screen == "blank":
             await self.show(" ")
         elif self.shown:
@@ -229,7 +264,7 @@ class Launcher:
             if self.clock() - self.last_input >= self.idle_blank_s:
                 await self.blank()
             else:
-                await self.show(self.home_text())
+                await self.show_home()
 
     async def _ticker_loop(self) -> None:
         while True:
@@ -257,7 +292,7 @@ class Launcher:
         elif gesture == "single_tap":
             await self.open(MENU[self.sel][0].lower())
             return
-        await self.show(self.home_text())
+        await self.show_home()
 
     async def open(self, name: str) -> None:
         self.screen = name

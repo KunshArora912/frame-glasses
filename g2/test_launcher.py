@@ -46,6 +46,10 @@ class FakeGateway:
     async def text(self, s):
         self.shown.append(s)
 
+    async def layout(self, elements, **extra):
+        self.layouts = getattr(self, "layouts", []) + [elements]
+        self.shown.append("\n".join(e["text"] for e in elements))
+
     async def mic(self, on):
         self.mic_calls.append(on)
 
