@@ -69,7 +69,9 @@ laptop, so the DLL is built with zig from pip:
 `python g2/mic_record.py [seconds] [out.wav]` then records to `g2/recordings/`
 (gitignored). First hardware run 2026-10-23: both arms connected and
 authenticated on firmware 2.3.2.14, fast text visible, taps received, 186 mic
-packets decoded to 9.3 s of audio.
+packets decoded to 9.3 s of audio. Mic verified with a laptop-played 1 kHz tone:
+-15 dBFS for exactly the 6 s it sounded, noise floor -52 dBFS otherwise, so the
+LC3 parameters (10 ms, 40 B, 16 kHz) are right for firmware 2.3.2.14.
 
 ## Our code
 
