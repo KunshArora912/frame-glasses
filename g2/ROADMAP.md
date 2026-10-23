@@ -34,7 +34,7 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 | 2 | Dashboard: weather | hub weather feed (Open-Meteo opt-in) | pushes acked live; not yet drawn: waiting on park-stops-heartbeat gateway patch |
 | 3 | Dashboard: calendar, news, tasks/quick notes | hub feeds (local .ics, RSS, thoughts.json) | wave 1 |
 | 4 | Menu: our entries + launch | gateway menu entry + park/relaunch | Launch from the glasses menu did nothing (2026-10-23 15:30); capture in progress |
-| 5 | Even AI (voice assistant) | native Even AI session + local Whisper + brain | wave 1 |
+| 5 | Even AI (voice assistant) | `g2/even_ai.py:EvenAI` (wake -> ENTER -> 2 s heartbeat -> mic -> local STT -> ASK/ANALYSE/REPLY -> EXIT) + local Whisper + brain; hook: `self.even_ai = even_ai.attach(self)` once the hub's Glasses is up; `python g2/even_ai.py --simulate "..."` prints every frame | **implemented, hardware check pending** (21 tests on fakes; verify: wake frame lens/bytes, mic streams after ENTER without the EvenHub toggle, end flag `6:1`, EXIT on double tap) |
 | 6 | Teleprompter | app over native teleprompter frames (text files) | wave 1 |
 | 7 | Translate | app: local STT + offline translation (argos) | wave 1 |
 | 8 | Conversate / live transcription + summary | Transcribe app + local summary | wave 1 extends existing app |
