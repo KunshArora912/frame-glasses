@@ -55,4 +55,22 @@ images as 4-bit BMP tiles of 288x144, in-place text updates <= 1000 bytes.
    http://127.0.0.1:8765 with a browser UI.
 3. `python gateway_cli.py send-text --text "hello"`, `mic --on`, `events`.
 
-Our own code goes next to this file, not in `vendor/`.
+## Mic audio
+
+The glasses stream LC3 (10 ms frames, 40 bytes, 16 kHz mono) from the left arm;
+the gateway forwards five frames per WebSocket event. Decoding uses Google's
+liblc3, which the gateway carries as a submodule. There is no C compiler on this
+laptop, so the DLL is built with zig from pip:
+
+    .venv/Scripts/python.exe -m pip install ziglang
+    cd g2/vendor/men-g2-ble-gateway && git submodule update --init --depth 1 liblc3
+    cd liblc3 && ../../../../.venv/Scripts/python.exe -m ziglang cc -O3 -std=c11 -shared -Iinclude src/*.c -o liblc3.dll -lm
+
+`python g2/mic_record.py [seconds] [out.wav]` then records to `g2/recordings/`
+(gitignored). First hardware run 2026-10-23: both arms connected and
+authenticated on firmware 2.3.2.14, fast text visible, taps received, 186 mic
+packets decoded to 9.3 s of audio.
+
+## Our code
+
+Lives next to this file, not in `vendor/`: `mic_record.py` so far.
