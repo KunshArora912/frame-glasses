@@ -19,3 +19,7 @@ android/build/
 android/app/build/
 android/local.properties
 android/.kotlin/
+
+# Even G2: third-party clones (see g2/README.md) and the gateway config that stores lens addresses
+g2/vendor/
+g2/config/
