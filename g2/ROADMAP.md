@@ -30,8 +30,8 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 
 | # | Feature (Even's app) | Our piece | State |
 |---|---|---|---|
-| 1 | Dashboard: time, date, battery | firmware + hub time sync | native READ/ack verified live; **visual check pending** |
-| 2 | Dashboard: weather | hub weather feed (Open-Meteo opt-in) | pushes acked live; not yet drawn: waiting on park-stops-heartbeat gateway patch |
+| 1 | Dashboard: time, date, battery | firmware + hub time sync | verified live (owner: dashboard looks right; time sync acked) |
+| 2 | Dashboard: weather | hub weather feed (Open-Meteo opt-in) | **VERIFIED LIVE 2026-10-23 15:46**: 21° + sun icon drawn bottom-left of the native dashboard once the gateway held its EvenHub heartbeat while parked (gateway patch v2) |
 | 3 | Dashboard: calendar, news, tasks/quick notes | hub feeds (local .ics, RSS, thoughts.json) | wave 1 |
 | 4 | Menu: our entries + launch | gateway menu entry + park/relaunch | Launch from the glasses menu did nothing (2026-10-23 15:30); capture in progress |
 | 5 | Even AI (voice assistant) | `g2/even_ai.py:EvenAI` (wake -> ENTER -> 2 s heartbeat -> mic -> local STT -> ASK/ANALYSE/REPLY -> EXIT) + local Whisper + brain; hook: `self.even_ai = even_ai.attach(self)` once the hub's Glasses is up; `python g2/even_ai.py --simulate "..."` prints every frame | **implemented, hardware check pending** (21 tests on fakes; verify: wake frame lens/bytes, mic streams after ENTER without the EvenHub toggle, end flag `6:1`, EXIT on double tap) |
@@ -48,4 +48,5 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 
 ## Verification log
 
+- 2026-10-23 15:46: native weather card visible on the dashboard (21°, sun). Precondition: no EvenHub heartbeat while parked.
 - 2026-10-23: gateway connect, display, taps, mic LC3 decode, speech (tone test), launcher apps with spoken input, park/relaunch via API, native settings READ, dashboard init / units / time sync / weather all acked (flag 0).
