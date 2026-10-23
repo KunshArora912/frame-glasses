@@ -177,6 +177,8 @@ class GatewayRawTransport:
         d = e.get("data") if isinstance(e.get("data"), dict) else e
         if kind not in (None, "glasses.raw_packet", "raw_packet") or "hex" not in d:
             return None
+        if d.get("char") not in (None, "5402", "7402"):
+            return None                    # mic packets (6402) are not command frames
         src = str(d.get("source") or d.get("side") or "").upper()
         side = LEFT if src.startswith("L") else RIGHT if src.startswith("R") else None
         if side is None:
@@ -521,7 +523,7 @@ class Glasses:
         first = parse_frame(frames[0]) if frames else None
         if first is not None:
             sid = first.sid if sid is None else sid
-            if magic is None and first.total <= 1:
+            if magic is None:              # fields 1-2 sit at the start of fragment 1
                 magic = read_ack_magic(first.payload)
         fut = self._wait(self._predicate(expect, side, sid, magic)) if expect is not None else None
         try:
@@ -543,9 +545,9 @@ class Glasses:
                       flag: int | None = None) -> ParsedFrame | None:
         """Frame ``payload`` for ``sid`` with the app's flag rule and send; see :meth:`send` for ``expect``."""
         f = session.flag_for(sid, payload) if flag is None else flag
-        if side == BOTH:
-            await self.send(RIGHT, frame_pb(payload, sid, f, self.alloc.next_seq()))
-            return await self.send(LEFT, frame_pb(payload, sid, f, self.alloc.next_seq()), expect, timeout, sid)
+        if side == BOTH:                   # left fire-and-forget, then wait on the right (the arm that answers)
+            await self.send(LEFT, frame_pb(payload, sid, f, self.alloc.next_seq()))
+            return await self.send(RIGHT, frame_pb(payload, sid, f, self.alloc.next_seq()), expect, timeout, sid)
         return await self.send(side, frame_pb(payload, sid, f, self.alloc.next_seq()), expect, timeout, sid)
 
     async def request(self, sid: int, payload: bytes, timeout: float = 4.0) -> ParsedFrame | None:
@@ -774,9 +776,15 @@ class Glasses:
         self.missed_keepalives = 0
         while True:
             await self._sleep(interval)
-            await self.send_pb(session.SID_DEVICE, session.keepalive(self.alloc.next_magic()), LEFT)
-            await self._sleep(left_lead)
-            r = await self.send_pb(session.SID_DEVICE, session.keepalive(self.alloc.next_magic()), RIGHT, "echo", echo_wait)
+            try:
+                await self.send_pb(session.SID_DEVICE, session.keepalive(self.alloc.next_magic()), LEFT)
+                await self._sleep(left_lead)
+                r = await self.send_pb(session.SID_DEVICE, session.keepalive(self.alloc.next_magic()), RIGHT, "echo", echo_wait)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:       # gateway hiccup: count it as a miss, keep the watchdog alive
+                self.log(f"keep-alive write failed: {exc!r}")
+                r = None
             if r is not None:
                 self.missed_keepalives = 0
             else:

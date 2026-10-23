@@ -165,12 +165,16 @@ def cmd_push(a) -> int:
     if st is None:
         print(f"gateway not answering at {a.gateway}; start it with: python g2/run.py")
         return 1
-    OPEN_REQUEST.parent.mkdir(parents=True, exist_ok=True)
-    OPEN_REQUEST.write_text(a.name.strip(), encoding="utf-8")
     g = st.get("glasses", {})
     if g.get("parked"):
-        # the launcher is parked behind the native dashboard; wake our page
+        # the launcher is parked behind the native dashboard: wake our page
+        # first, so its page_create event lands before the open request
         _post("/api/page", {"create": True}, a.gateway)
+        time.sleep(1.0)
+    OPEN_REQUEST.parent.mkdir(parents=True, exist_ok=True)
+    tmp = OPEN_REQUEST.with_suffix(".tmp")
+    tmp.write_text(a.name.strip(), encoding="utf-8")
+    os.replace(tmp, OPEN_REQUEST)                      # atomic: the launcher never reads a half-written file
     print(f"asked the launcher to open '{a.name}' (it checks every 2 s; glasses {g.get('phase')}, "
           f"battery {g.get('battery_level')}%)")
     if not g.get("ready"):

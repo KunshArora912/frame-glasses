@@ -43,11 +43,16 @@ def discover(reload: bool = False, only: set[str] | None = None) -> list[App]:
             continue
         qual = f"g2.apps.{name}"
         try:
-            if qual in sys.modules and reload:
+            # Stamp the attempt, not the success: a file with a syntax error
+            # must not be reported as "changed" (and re-imported) every tick.
+            try:
+                _mtimes[name] = (HERE / f"{name}.py").stat().st_mtime
+            except OSError:
+                continue
+            if qual in sys.modules and reload and (only is None or name in only):
                 mod = importlib.reload(sys.modules[qual])
             else:
                 mod = importlib.import_module(qual)
-            _mtimes[name] = (HERE / f"{name}.py").stat().st_mtime
             app = _instantiate(mod)
             if app is None:
                 log.warning("%s defines no App; skipped", name)

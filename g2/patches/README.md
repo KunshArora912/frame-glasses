@@ -39,12 +39,13 @@ git reset -q
 
 | Area | Change |
 |---|---|
-| `POST /api/raw` (new) | `{"side": "left"\|"right"\|"both", "hex": "aa21...", "response": false}` or `{"frames": ["aa21...", ...]}` writes complete BLE frames to the `5401` command characteristic unchanged (no seq/CRC rewriting), through the gateway's serialized write path with `ble_packet_gap_ms` between frames. Reply `{"accepted": true, "side", "bytes", "frames"}`; 400 bad hex/frame, 409 lens not connected. |
+| `POST /api/raw` (new) | `{"side": "left"\|"right"\|"both", "hex": "aa21...", "response": false, "char": "5401"\|"7401"}` or `{"frames": ["aa21...", ...]}` writes complete BLE frames unchanged (no seq/CRC rewriting) to the `5401` command characteristic (default) or the `7401` EvenFile characteristic (service `0e8ac72e7450`, notification/whitelist JSON transfers), through the gateway's serialized write path with `ble_packet_gap_ms` between frames. Reply `{"accepted": true, "side", "bytes", "frames", "char"}`; 400 bad hex/frame/unknown `char`, 409 lens not connected. |
 | `POST /api/page` (new) | `{"create": true}` recreates the startup page (+ cached content + mic target); `{"shutdown": true, "exit_mode": 0}` sends EvenHub ShutDown (cmd 9) and parks. |
-| Raw inbound events | `--raw-events` / `ble.raw_events: true` emits `glasses.raw_packet {"source","size","hex","char"}` for every `5402` notification on both lenses before the gateway parses it (so consumed/acked frames are included). `--raw-events-audio` adds the `6402` mic characteristic. `--debug-raw-events` is now an alias. |
+| Raw inbound events | `--raw-events` / `ble.raw_events: true` emits `glasses.raw_packet {"source","size","hex","char"}` for every `5402` notification on both lenses before the gateway parses it (so consumed/acked frames are included), and for every `7402` EvenFile notification (`"char": "7402"`; the gateway subscribes to `7402` on both lenses, best-effort, and never parses those frames). `--raw-events-audio` adds the `6402` mic characteristic. `--debug-raw-events` is now an alias. |
 | Park on exit | `--park-on-exit` / `display.park_on_exit: true`: on `page_shutdown` (cmd 9/10 or ack error 9) the gateway does not recreate its page; it sets `display_surface="dashboard"`, `parked=true`, and emits `system.reinitialize {"reason": "page_parked"}`. Page is recreated on (1) launch from the gateway's own dashboard menu entry (`glasses.dashboard {"action":"launched"}` + `system.reinitialize {"reason":"dashboard_launch"}`), (2) any `POST /api/display` (`reason: "display_request"`), (3) `POST /api/page {"create": true}` (`reason: "page_create"`). Default behaviour (auto-recreate, `reason: "page_shutdown"`) is unchanged. An explicit `/api/page shutdown` parks even without the flag. |
+| Heartbeat while parked | `--park-stops-heartbeat` / `display.park_stops_heartbeat` (default: follows `park_on_exit`; `--no-park-stops-heartbeat` / `false` overrides): while `parked` the EvenHub heartbeat loop (SID 0xE0 cmd 12, right lens, `heartbeat_interval_sec`) skips its sends so the firmware dashboard redraws pushed widget content; the task itself stays alive (background-task watchdog untouched, DevSettings heartbeat unchanged) and sends resume within one interval after page create / `/api/display` / menu launch / reconnect. `/api/status` exposes `server.park_stops_heartbeat`. |
 | Long press | OS event types 9/10 become gestures `long_press` / `long_press_release` (constants, mapping, `/api/touch` allow-list, MCP `wait_for_touch` allow-list). |
-| Status | `/api/status` and `status.snapshot` gain `glasses.parked`; `server.raw_events`, `server.raw_events_audio`, `server.park_on_exit`. `display_surface` was already present. |
+| Status | `/api/status` and `status.snapshot` gain `glasses.parked`; `server.raw_events`, `server.raw_events_audio`, `server.park_on_exit`, `server.park_stops_heartbeat`. `display_surface` was already present. |
 | Tests | `tests/test_raw_api.py`, `tests/test_gesture_mapping.py`, `tests/test_park_state.py`, shared `tests/_support.py` (fake Bleak client, protobuf payload builders). |
 | Docs | `API.md` 2.8, 3.5, 3.6, event sections; `README.md` flag table, config sample, HTTP API. |
 
@@ -57,4 +58,11 @@ Everything above is unit-tested with a mocked BLE layer only. Still to confirm o
 whether the native dashboard actually stays visible while the gateway's EvenHub heartbeat (0xE0 cmd 12,
 every 5 s) keeps running in the parked state; that the glasses deliver cmd 17 for the `Launch` entry
 after a parked exit; that firmware emits event types 9/10 for a pure long press; and write-with-response
-behaviour on `5401`.
+behaviour on `5401`. Also unverified: that firmware 2.3.2.14 exposes `7401`/`7402` under service `0e8ac72e7450`
+(the GATT dump in `g2/README.md` history showed 01 write-without-response / 02 notify there, so the gateway
+subscribes best-effort and only logs a warning if `7402` is missing); that EvenFile replies really arrive on
+`7402` rather than only on `5402`; and that holding the heartbeat while parked makes the native dashboard
+redraw pushed widgets without the firmware treating the plugin as gone (nothing in the gateway reacts to a
+missing heartbeat; whether the glasses do is a firmware question).
+
+2026-10-23: added `POST /api/raw` `"char": "7401"` (EvenFile write) + `7402` raw events, and `display.park_stops_heartbeat` (hold the EvenHub heartbeat while parked); 76 unit tests pass; patch regenerated (`git add -N` test files, full `git diff --binary`).

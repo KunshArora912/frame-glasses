@@ -1,5 +1,5 @@
 diff --git a/API.md b/API.md
-index 104b895..e4c3ab3 100644
+index 104b895..9f89a1c 100644
 --- a/API.md
 +++ b/API.md
 @@ -15,7 +15,7 @@ This document describes the HTTP and WebSocket interfaces currently implemented
@@ -11,7 +11,7 @@ index 104b895..e4c3ab3 100644
  2. A WebSocket endpoint for real-time status and device events.
  3. Static UI assets served from the same process.
  4. An optional FastMCP HTTP server for AI-agent display control and user interaction tools.
-@@ -106,7 +106,29 @@ The current implementation enforces these input rules:
+@@ -106,7 +106,30 @@ The current implementation enforces these input rules:
  - Events are broadcast to all connected WebSocket clients.
  - Each WebSocket client has a bounded outgoing queue of 128 events.
  - Slow clients are disconnected if their queue overflows.
@@ -24,7 +24,7 @@ index 104b895..e4c3ab3 100644
 +
 +Raw inbound events:
 +
-+- `--raw-events` / `ble.raw_events: true` emits one `glasses.raw_packet` event for every notification on the `5402` command characteristic of either lens, before the gateway parses it. Frames the gateway consumes or acks itself (heartbeat echoes, page acks, touch events) are included.
++- `--raw-events` / `ble.raw_events: true` emits one `glasses.raw_packet` event for every notification on the `5402` command characteristic of either lens, before the gateway parses it. Frames the gateway consumes or acks itself (heartbeat echoes, page acks, touch events) are included. Notifications on the `7402` EvenFile characteristic (replies to `7401` writes made with `POST /api/raw {"char": "7401"}`) are emitted the same way with `"char": "7402"`; the gateway subscribes to `7402` on both lenses but never parses those frames.
 +- `--raw-events-audio` / `ble.raw_events_audio: true` additionally emits raw packets for the `6402` microphone characteristic. This floods the WebSocket while the mic is on, so it is a separate switch and has no effect without `--raw-events`.
 +- `--debug-raw-events` is kept as an alias of `--raw-events`.
 +
@@ -36,13 +36,14 @@ index 104b895..e4c3ab3 100644
 +  1. the user launching the gateway's own dashboard menu entry (`Launch`): the gateway emits `glasses.dashboard {"action": "selected", ...}`, then `glasses.dashboard {"action": "launched", "app_id": ..., "was_parked": true}`, then `system.reinitialize {"reason": "dashboard_launch", "app_id": ...}`;
 +  2. any `POST /api/display` (text, layout, image or clear): `system.reinitialize {"reason": "display_request"}` is emitted, then the page is created and the content rendered in that create;
 +  3. `POST /api/page {"create": true}`: `system.reinitialize {"reason": "page_create", "was_parked": ...}`.
++- `--park-stops-heartbeat` / `display.park_stops_heartbeat: true` (default: follows `park_on_exit`, so it is on whenever `--park-on-exit` is on; `--no-park-stops-heartbeat` / `false` disables it): while parked the gateway stops sending the EvenHub heartbeat (SID `0xE0` cmd 12, every `heartbeat_interval_sec` to the right lens). The firmware's own dashboard only redraws pushed widget content (weather, calendar, ...) once the plugin heartbeat stops, so a host writing native widgets through `POST /api/raw` needs this. The heartbeat task keeps running (it just skips sends), so the background-task watchdog is untouched, the DevSettings heartbeat continues, and sending resumes within one interval after the page is recreated by any of the three paths above or by a reconnect. `/api/status` reports the effective value as `server.park_stops_heartbeat`.
 +- `POST /api/page {"shutdown": true}` sends the EvenHub ShutDown (cmd 9) and parks the same way (`system.reinitialize {"reason": "page_parked", "trigger": "shutdown_request"}`). An explicit shutdown always parks, even when `park_on_exit` is false, so the gateway does not immediately undo it when the glasses confirm with cmd 9.
 +- A BLE reconnect (full or right-lens) always runs the init sequence, which recreates the page; `parked` is reset to `false`.
 +- `SYSTEM_EXIT` / `ABNORMAL_EXIT` / `FOREGROUND_EXIT` gestures keep their existing behaviour (surface marked `dashboard`, rebuild on next display call); only `page_shutdown` parks.
  
  ### 2.7 FastMCP Interface
  
-@@ -163,13 +185,16 @@ Example response:
+@@ -163,13 +186,17 @@ Example response:
      "port": 8765,
      "websocket_path": "/ws",
      "static_dir": "ui",
@@ -56,6 +57,7 @@ index 104b895..e4c3ab3 100644
 +    "raw_events": false,
 +    "raw_events_audio": false,
 +    "park_on_exit": false,
++    "park_stops_heartbeat": false,
 +    "mcp": {
 +      "enabled": true,
 +      "host": "127.0.0.1",
@@ -66,7 +68,7 @@ index 104b895..e4c3ab3 100644
    "glasses": {
      "phase": "ready",
      "ready": true,
-@@ -184,6 +209,9 @@ Example response:
+@@ -184,6 +211,9 @@ Example response:
      "firmware_version": "...",
      "last_error": "",
      "last_gesture": "single_tap",
@@ -76,7 +78,7 @@ index 104b895..e4c3ab3 100644
      "left": {
        "side": "left",
        "address": "AA:BB:CC:DD:EE:01",
-@@ -218,6 +246,8 @@ Notes:
+@@ -218,6 +248,8 @@ Notes:
  - phase is one of: idle, scanning, connecting, initializing, ready, recovering, stopped.
  - last_error contains the latest connection/runtime error, if any.
  - last_gesture is updated whenever a touch gesture is observed or injected.
@@ -85,7 +87,7 @@ index 104b895..e4c3ab3 100644
  
  ### 3.2 POST /api/display
  
-@@ -453,6 +483,8 @@ Allowed gesture values:
+@@ -453,6 +485,8 @@ Allowed gesture values:
  - double_tap
  - swipe_up
  - swipe_down
@@ -94,13 +96,13 @@ index 104b895..e4c3ab3 100644
  
  Success response:
  
-@@ -468,6 +500,84 @@ Behavior:
+@@ -468,6 +502,96 @@ Behavior:
  - A glasses.touch event is broadcast over WebSocket with source set to http.
  - last_gesture in the status snapshot is updated.
  
 +### 3.5 POST /api/raw
 +
-+Writes one or more pre-built BLE frames to the `5401` command characteristic of the selected lens(es), byte for byte. The gateway does not rewrite seq, magic or CRC. Writes go through the gateway's serialized write path, so a raw frame never lands between two packets of a multi-packet gateway message.
++Writes one or more pre-built BLE frames to the `5401` command characteristic (default) or the `7401` EvenFile characteristic of the selected lens(es), byte for byte. The gateway does not rewrite seq, magic or CRC. Writes go through the gateway's serialized write path, so a raw frame never lands between two packets of a multi-packet gateway message.
 +
 +Request (single frame):
 +
@@ -121,14 +123,25 @@ index 104b895..e4c3ab3 100644
 +}
 +```
 +
++Request (EvenFile characteristic, e.g. a notification JSON transfer; replies arrive on `7402` and `5402`):
++
++```json
++{
++  "side": "right",
++  "hex": "aa21015f0101c400...",
++  "char": "7401"
++}
++```
++
 +Fields:
 +
 +- side: `left`, `right` or `both` (both = the same frame written to each lens).
 +- hex: one complete frame as a hex string. Whitespace, upper case and a `0x` prefix are tolerated.
 +- frames: ordered list of hex frames; use this instead of hex for multi-packet messages. At most 64 per request.
 +- response: optional boolean, default false (write-without-response). true uses write-with-response.
++- char: optional target characteristic, `"5401"` (command, default) or `"7401"` (EvenFile service `0e8ac72e7450`, used for notification / whitelist JSON file transfers). Case and a `0x` prefix are tolerated. Any other value is rejected with 400 before anything is written.
 +
-+Validation (400 on failure): valid hex of even length; at least 8 bytes; first byte `0xAA`; total length equal to `8 + length byte` (byte 3). Concatenated frames in one hex string are rejected with a hint to use frames.
++Validation (400 on failure): valid hex of even length; at least 8 bytes; first byte `0xAA`; total length equal to `8 + length byte` (byte 3). Concatenated frames in one hex string are rejected with a hint to use frames. The same framing rules apply to `7401` frames.
 +
 +Success response:
 +
@@ -137,19 +150,20 @@ index 104b895..e4c3ab3 100644
 +  "accepted": true,
 +  "side": "right",
 +  "bytes": 27,
-+  "frames": 1
++  "frames": 1,
++  "char": "5401"
 +}
 +```
 +
-+bytes is the number of bytes written per lens (not doubled for both).
++bytes is the number of bytes written per lens (not doubled for both). char echoes the characteristic that was written.
 +
 +Errors:
 +
-+- 400 `{"accepted": false, "error": "..."}` for malformed JSON, hex or fields.
++- 400 `{"accepted": false, "error": "..."}` for malformed JSON, hex or fields (including an unknown `char`).
 +- 409 `{"accepted": false, "error": "... not connected"}` if a requested lens is not connected (or is mid-reconnect).
 +- 500 for a BLE write failure; the gateway then starts its normal reconnect handling for that lens.
 +
-+Raw writes are logged at DEBUG level. The replies arrive as `glasses.raw_packet` events when raw events are enabled (2.8).
++Raw writes are logged at DEBUG level. The replies arrive as `glasses.raw_packet` events when raw events are enabled (2.8); replies to `7401` writes carry `"char": "7402"` (and, for some EvenFile steps, also show up on `5402`).
 +
 +### 3.6 POST /api/page
 +
@@ -179,7 +193,7 @@ index 104b895..e4c3ab3 100644
  ## 4. WebSocket API
  
  ### 4.1 Endpoint
-@@ -549,8 +659,11 @@ Observed gesture names include:
+@@ -549,8 +673,11 @@ Observed gesture names include:
  - double_tap
  - swipe_up
  - swipe_down
@@ -191,7 +205,7 @@ index 104b895..e4c3ab3 100644
  - system_exit
  
  #### glasses.authentication
-@@ -609,6 +722,19 @@ Emitted when a menu/dashboard app selection event is received from the glasses.
+@@ -609,6 +736,19 @@ Emitted when a menu/dashboard app selection event is received from the glasses.
  }
  ```
  
@@ -211,7 +225,7 @@ index 104b895..e4c3ab3 100644
  #### glasses.mic_audio
  
  Emitted for incoming microphone audio frames.
-@@ -631,7 +757,7 @@ Notes:
+@@ -631,7 +771,7 @@ Notes:
  
  #### glasses.raw_packet
  
@@ -220,7 +234,7 @@ index 104b895..e4c3ab3 100644
  
  ```json
  {
-@@ -639,11 +765,14 @@ Only emitted when raw packet debugging is enabled at server startup.
+@@ -639,11 +779,14 @@ Only emitted when raw packet debugging is enabled at server startup.
    "data": {
      "source": "R",
      "size": 48,
@@ -231,12 +245,12 @@ index 104b895..e4c3ab3 100644
  }
  ```
  
-+`char` is `5402` for the command characteristic and `6402` for the microphone characteristic; the latter only appears with `--raw-events-audio`.
++`char` is `5402` for the command characteristic, `7402` for the EvenFile characteristic (replies to `POST /api/raw {"char": "7401"}`; surfaced only, never parsed by the gateway) and `6402` for the microphone characteristic; the latter only appears with `--raw-events-audio`.
 +
  #### system.error
  
  Emitted when the connection loop or runtime logic encounters an error.
-@@ -659,9 +788,8 @@ Emitted when the connection loop or runtime logic encounters an error.
+@@ -659,9 +802,8 @@ Emitted when the connection loop or runtime logic encounters an error.
  
  #### system.reinitialize
  
@@ -247,7 +261,7 @@ index 104b895..e4c3ab3 100644
  
  ```json
  {
-@@ -672,6 +800,14 @@ The existing BLE connection is kept; this event does not imply a BLE reconnect.
+@@ -672,6 +814,14 @@ The existing BLE connection is kept; this event does not imply a BLE reconnect.
  }
  ```
  
@@ -263,34 +277,36 @@ index 104b895..e4c3ab3 100644
  
  These are not JSON API endpoints, but they are served by the same process:
 diff --git a/README.md b/README.md
-index f2b9342..e89fd44 100644
+index f2b9342..cd72258 100644
 --- a/README.md
 +++ b/README.md
-@@ -82,7 +82,10 @@ Additional options:
+@@ -82,7 +82,11 @@ Additional options:
  | `--mcp-host HOST` | Override the FastMCP listen host (default: `127.0.0.1`) |
  | `--mcp-port PORT` | Override the FastMCP listen port (default: `8766`) |
  | `--mcp-path PATH` | Override the FastMCP HTTP path (default: `/mcp`) |
 -| `--debug-raw-events` | Include `glasses.raw_packet` events in WebSocket output |
-+| `--raw-events` | Emit `glasses.raw_packet` for every `5402` notification, including frames the gateway consumes itself (config `ble.raw_events`) |
++| `--raw-events` | Emit `glasses.raw_packet` for every `5402` (and `7402` EvenFile) notification, including frames the gateway consumes itself (config `ble.raw_events`) |
 +| `--raw-events-audio` | With `--raw-events`, also emit raw packets for the `6402` microphone characteristic (config `ble.raw_events_audio`) |
 +| `--debug-raw-events` | Alias of `--raw-events` |
 +| `--park-on-exit` | After the glasses tear the page down (double-tap exit), leave the native dashboard visible instead of recreating the page; see `POST /api/page` and API.md 2.8 (config `display.park_on_exit`) |
++| `--park-stops-heartbeat` / `--no-park-stops-heartbeat` | While parked, stop (or keep) the EvenHub heartbeat so the native dashboard redraws pushed widget content; default follows `--park-on-exit` (config `display.park_stops_heartbeat`) |
  | `--log-level LEVEL` | Python logging level (default: `INFO`) |
  | `--clear-saved-addresses` | Clear saved glass addresses on startup and rescan |
  | `--unpair-on-startup` | Attempt OS-level unpair of saved addresses at startup, then rescan |
-@@ -137,6 +140,11 @@ ble:
+@@ -137,6 +141,12 @@ ble:
    image_settle_delay_ms: 1000
    image_fragment_interval_ms: 200
    unpair_on_startup: false
-+  raw_events: false       # glasses.raw_packet for every 5402 notification
++  raw_events: false       # glasses.raw_packet for every 5402 / 7402 notification
 +  raw_events_audio: false # also for the 6402 mic characteristic (floods while mic is on)
 +
 +display:
 +  park_on_exit: false     # true: do not recreate the page after page_shutdown; wait for launch / /api/display / /api/page
++  # park_stops_heartbeat: true  # hold the EvenHub heartbeat while parked (default: same as park_on_exit)
  
  gui:
    enabled: true
-@@ -180,7 +188,7 @@ Keep the MCP listener bound to localhost unless the network and client are trust
+@@ -180,7 +190,7 @@ Keep the MCP listener bound to localhost unless the network and client are trust
  - `display_layout`: show arbitrary text/image layout JSON.
  - `clear_display`: clear the display.
  - `get_status`: read gateway and glasses state.
@@ -299,7 +315,7 @@ index f2b9342..e89fd44 100644
  - `ask_user_on_glasses`: display a question and map touch gestures to choices.
  - `notify_user_on_glasses`: display a temporary notification, then optionally clear it.
  - `ask_menu_on_glasses`: display a swipe-controlled menu and return the tapped selection.
-@@ -266,7 +274,7 @@ Possible `mode` values: `fast_text`, `layout`, `clear`.
+@@ -266,7 +276,7 @@ Possible `mode` values: `fast_text`, `layout`, `clear`.
  
  Synthesise a touch gesture event and broadcast it to all WebSocket clients.
  
@@ -308,20 +324,21 @@ index f2b9342..e89fd44 100644
  
  ```json
  { "gesture": "single_tap" }
-@@ -280,6 +288,25 @@ Response:
+@@ -280,6 +290,26 @@ Response:
  
  ---
  
 +### `POST /api/raw`
 +
-+Write one or more complete BLE frames (hex, starting `aa21`) to the `5401` command characteristic of `left`, `right` or `both` lenses, unchanged, through the gateway's serialized write path.
++Write one or more complete BLE frames (hex, starting `aa21`) to the `5401` command characteristic (default) or the `7401` EvenFile characteristic (`"char": "7401"`) of `left`, `right` or `both` lenses, unchanged, through the gateway's serialized write path.
 +
 +```json
 +{ "side": "right", "hex": "aa219213010101200802109c01220a1a081206120408001000a142", "response": false }
 +{ "side": "both", "frames": ["aa21...", "aa21..."] }
++{ "side": "right", "hex": "aa21015f0101c400...", "char": "7401" }
 +```
 +
-+Response: `{ "accepted": true, "side": "right", "bytes": 27, "frames": 1 }`; 400 for bad hex, 409 if that lens is not connected.
++Response: `{ "accepted": true, "side": "right", "bytes": 27, "frames": 1, "char": "5401" }`; 400 for bad hex or an unknown `char`, 409 if that lens is not connected.
 +
 +---
 +
@@ -334,7 +351,7 @@ index f2b9342..e89fd44 100644
  ### `GET /api/status`
  
  Returns a snapshot of the server and glasses state:
-@@ -299,6 +326,7 @@ Returns a snapshot of the server and glasses state:
+@@ -299,6 +329,7 @@ Returns a snapshot of the server and glasses state:
      "last_error": "",
      "last_gesture": "single_tap",
      "display_surface": "app",
@@ -342,7 +359,7 @@ index f2b9342..e89fd44 100644
      "pairing_warning": "",
      "left": { "address": "...", "mac_address": "...", "connected": true, "authenticated": true },
      "right": { "address": "...", "mac_address": "...", "connected": true, "authenticated": true }
-@@ -330,15 +358,15 @@ An initial `status.snapshot` event is sent on connection, followed by all device
+@@ -330,15 +361,15 @@ An initial `status.snapshot` event is sent on connection, followed by all device
  |---|---|
  | `status.snapshot` | Full server + glasses state |
  | `connection.state` | BLE phase change |
@@ -363,27 +380,27 @@ index f2b9342..e89fd44 100644
  ---
  
 diff --git a/gateway_config.py b/gateway_config.py
-index 48bb364..f48cc83 100644
+index 48bb364..7643a3c 100644
 --- a/gateway_config.py
 +++ b/gateway_config.py
 @@ -110,6 +110,8 @@ class BleConfig:
      image_settle_delay_ms: int = 1000
      image_fragment_interval_ms: int = 200
      unpair_on_startup: bool = False
-+    raw_events: bool = False  # emit glasses.raw_packet for every 5402 notification
++    raw_events: bool = False  # emit glasses.raw_packet for every 5402 / 7402 notification
 +    raw_events_audio: bool = False  # also emit raw packets for the 6402 mic characteristic
  
      @classmethod
      def from_mapping(cls, data: Mapping[str, Any]) -> "BleConfig":
-@@ -124,9 +126,27 @@ class BleConfig:
+@@ -124,6 +126,38 @@ class BleConfig:
              image_settle_delay_ms=int(data.get("image_settle_delay_ms", cls.image_settle_delay_ms)),
              image_fragment_interval_ms=int(data.get("image_fragment_interval_ms", cls.image_fragment_interval_ms)),
              unpair_on_startup=bool(data.get("unpair_on_startup", cls.unpair_on_startup)),
 +            raw_events=_coerce_bool(data.get("raw_events"), cls.raw_events),
 +            raw_events_audio=_coerce_bool(data.get("raw_events_audio"), cls.raw_events_audio),
-         )
- 
- 
++        )
++
++
 +@dataclass
 +class DisplayConfig:
 +    """Page ownership behaviour of the EvenHub display surface."""
@@ -393,17 +410,28 @@ index 48bb364..f48cc83 100644
 +    # gateway page. The page is recreated on the next /api/display, /api/page
 +    # {"create": true}, or a launch from the gateway's own dashboard menu entry.
 +    park_on_exit: bool = False
++    # While parked, stop sending the EvenHub heartbeat (SID 0xE0 cmd 12) so the
++    # firmware's own dashboard redraws pushed widget content; it resumes when the
++    # page is recreated. None (default) follows park_on_exit.
++    park_stops_heartbeat: Optional[bool] = None
++
++    @property
++    def effective_park_stops_heartbeat(self) -> bool:
++        if self.park_stops_heartbeat is None:
++            return bool(self.park_on_exit)
++        return bool(self.park_stops_heartbeat)
 +
 +    @classmethod
 +    def from_mapping(cls, data: Mapping[str, Any]) -> "DisplayConfig":
 +        defaults = cls()
-+        return cls(park_on_exit=_coerce_bool(data.get("park_on_exit"), defaults.park_on_exit))
-+
-+
- @dataclass
- class GuiConfig:
-     """Tk GUI 有効/無効だけを今は保持する。"""
-@@ -209,6 +229,7 @@ class GatewayConfig:
++        raw_stops = data.get("park_stops_heartbeat")
++        return cls(
++            park_on_exit=_coerce_bool(data.get("park_on_exit"), defaults.park_on_exit),
++            park_stops_heartbeat=None if raw_stops is None else _coerce_bool(raw_stops),
+         )
+ 
+ 
+@@ -209,6 +243,7 @@ class GatewayConfig:
      server: ServerConfig = field(default_factory=ServerConfig)
      glass: GlassConfig = field(default_factory=GlassConfig)
      ble: BleConfig = field(default_factory=BleConfig)
@@ -411,7 +439,7 @@ index 48bb364..f48cc83 100644
      gui: GuiConfig = field(default_factory=GuiConfig)
      mcp: McpConfig = field(default_factory=McpConfig)
      cors: CorsConfig = field(default_factory=CorsConfig)
-@@ -222,6 +243,7 @@ class GatewayConfig:
+@@ -222,6 +257,7 @@ class GatewayConfig:
              server=ServerConfig.from_mapping(_coerce_mapping(data.get("server"))),
              glass=GlassConfig.from_mapping(_coerce_mapping(data.get("glass"))),
              ble=BleConfig.from_mapping(_coerce_mapping(data.get("ble"))),
@@ -419,7 +447,7 @@ index 48bb364..f48cc83 100644
              gui=GuiConfig.from_mapping(_coerce_mapping(data.get("gui"))),
              mcp=McpConfig.from_mapping(_coerce_mapping(data.get("mcp"))),
              cors=CorsConfig.from_mapping(_coerce_mapping(data.get("cors"))),
-@@ -298,6 +320,7 @@ __all__ = [
+@@ -298,6 +334,7 @@ __all__ = [
      "BleConfig",
      "CorsConfig",
      "DEFAULT_CONFIG_PATH",
@@ -448,10 +476,10 @@ index c9f40f7..11955e6 100644
  CHOICE_LABELS = {  # ユーザー表示用のジェスチャーラベル
      "single_tap": "single tap",
 diff --git a/gateway_server.py b/gateway_server.py
-index 25e2ccd..96261fe 100644
+index 25e2ccd..2dd8de2 100644
 --- a/gateway_server.py
 +++ b/gateway_server.py
-@@ -20,15 +20,75 @@ from aiohttp import web
+@@ -20,15 +20,85 @@ from aiohttp import web
  
  from gateway_config import GatewayConfig, GatewayConfigStore
  from mentraos.g2 import G2Client, G2ClientConfig
@@ -474,14 +502,16 @@ index 25e2ccd..96261fe 100644
 +    {"single_tap", "double_tap", "swipe_up", "swipe_down", "long_press", "long_press_release"}
 +)
 +RAW_SIDES = ("left", "right", "both")
++RAW_CHARS = ("5401", "7401")
 +RAW_MAX_FRAMES = 64
 +
 +
-+def parse_raw_request(payload: Any) -> tuple[str, list[bytes], bool]:
-+    """Validate a POST /api/raw body and return (side, frames, response).
++def parse_raw_request(payload: Any) -> tuple[str, list[bytes], bool, str]:
++    """Validate a POST /api/raw body and return (side, frames, response, char).
 +
 +    Accepts either "hex" (one frame) or "frames" (ordered list of hex frames).
-+    Raises ValueError with a client-readable message for any malformed input.
++    "char" selects the target characteristic: "5401" (command, default) or "7401"
++    (EvenFile). Raises ValueError with a client-readable message for any malformed input.
 +    """
 +
 +    if not isinstance(payload, dict):
@@ -492,6 +522,14 @@ index 25e2ccd..96261fe 100644
 +    response = payload.get("response", False)
 +    if not isinstance(response, bool):
 +        raise ValueError("response must be a boolean")
++    char_value = payload.get("char", RAW_CHARS[0])
++    if not isinstance(char_value, str):
++        raise ValueError("char must be a string")
++    char = char_value.strip().lower()
++    if char.startswith("0x"):
++        char = char[2:]
++    if char not in RAW_CHARS:
++        raise ValueError(f"char must be one of: {', '.join(RAW_CHARS)}")
 +
 +    hex_values: list[Any]
 +    if "frames" in payload:
@@ -527,11 +565,11 @@ index 25e2ccd..96261fe 100644
 +            frames.append(validate_raw_frame(raw))
 +        except ValueError as exc:
 +            raise ValueError(f"frame {index}: {exc}") from exc
-+    return side, frames, response
++    return side, frames, response, char
  
  
  class _WebSocketClient:
-@@ -98,6 +158,7 @@ class GatewayServerApp:
+@@ -98,6 +168,7 @@ class GatewayServerApp:
          self._touch_waiters: list[tuple[asyncio.Future[Dict[str, Any]], Optional[set[str]]]] = []
  
          self._client = G2Client(self._build_g2_client_config(), event_handler=self._handle_client_event)
@@ -539,7 +577,7 @@ index 25e2ccd..96261fe 100644
          @web.middleware
          async def security_middleware(request: web.Request, handler: Callable[[web.Request], Any]) -> web.StreamResponse:
              return await self._handle_security(request, handler)
-@@ -108,6 +169,8 @@ class GatewayServerApp:
+@@ -108,6 +179,8 @@ class GatewayServerApp:
                  web.post("/api/display", self.handle_display),
                  web.post("/api/mic", self.handle_mic),
                  web.post("/api/touch", self.handle_touch),
@@ -548,7 +586,7 @@ index 25e2ccd..96261fe 100644
                  web.get("/api/status", self.handle_status),
                  web.get(self._config.server.websocket_path, self.handle_websocket),
                  web.get("/", self.handle_index),
-@@ -353,7 +416,7 @@ class GatewayServerApp:
+@@ -353,7 +426,7 @@ class GatewayServerApp:
      async def handle_touch(self, request: web.Request) -> web.Response:
          """POST /api/touch: タッチイベントを合成して WebSocket クライアントへ配信する。"""
  
@@ -557,7 +595,7 @@ index 25e2ccd..96261fe 100644
          try:
              payload = await request.json()
              gesture = payload.get("gesture", "")
-@@ -373,6 +436,64 @@ class GatewayServerApp:
+@@ -373,6 +446,64 @@ class GatewayServerApp:
          await self._client.record_touch_gesture(gesture)
          return web.json_response({"accepted": True, "gesture": gesture})
  
@@ -569,11 +607,11 @@ index 25e2ccd..96261fe 100644
 +        except json.JSONDecodeError as exc:
 +            return web.json_response({"accepted": False, "error": f"invalid JSON: {exc}"}, status=400)
 +        try:
-+            side, frames, response = parse_raw_request(payload)
++            side, frames, response, char = parse_raw_request(payload)
 +        except ValueError as exc:
 +            return web.json_response({"accepted": False, "error": str(exc)}, status=400)
 +        try:
-+            result = await self._client.write_raw_frames(side, frames, response=response)
++            result = await self._client.write_raw_frames(side, frames, response=response, char=char)
 +        except G2NotConnectedError as exc:
 +            return web.json_response({"accepted": False, "error": str(exc)}, status=409)
 +        except ValueError as exc:
@@ -581,7 +619,7 @@ index 25e2ccd..96261fe 100644
 +        except Exception as exc:  # pragma: no cover - BLE stack errors
 +            LOGGER.exception("raw write failed")
 +            return web.json_response({"accepted": False, "error": str(exc)}, status=500)
-+        LOGGER.debug("POST /api/raw side=%s frames=%d bytes=%d", side, len(frames), result.get("bytes"))
++        LOGGER.debug("POST /api/raw side=%s char=%s frames=%d bytes=%d", side, char, len(frames), result.get("bytes"))
 +        return web.json_response(result)
 +
 +    async def handle_page(self, request: web.Request) -> web.Response:
@@ -622,27 +660,29 @@ index 25e2ccd..96261fe 100644
      async def handle_status(self, _: web.Request) -> web.Response:
          """server と glasses の状態スナップショットを返す。"""
  
-@@ -537,6 +658,9 @@ class GatewayServerApp:
+@@ -537,6 +668,10 @@ class GatewayServerApp:
              image_dither=self._image_dither,
              debug_raw_events=self._debug_raw_events,
              unpair_on_startup=bool(self._config.ble.unpair_on_startup),
 +            raw_events=bool(self._config.ble.raw_events) or bool(self._debug_raw_events),
 +            raw_events_audio=bool(self._config.ble.raw_events_audio),
 +            park_on_exit=bool(self._config.display.park_on_exit),
++            park_stops_heartbeat=self._config.display.park_stops_heartbeat,
          )
  
      def _status_payload(self) -> Dict[str, Any]:
-@@ -550,6 +674,9 @@ class GatewayServerApp:
+@@ -550,6 +685,10 @@ class GatewayServerApp:
                  "static_dir": self._config.server.static_dir,
                  "cors_enabled": bool(self._config.cors.enabled),
                  "auth_required": bool(self._config.auth.api_key),
 +                "raw_events": bool(self._config.ble.raw_events) or bool(self._debug_raw_events),
 +                "raw_events_audio": bool(self._config.ble.raw_events_audio),
 +                "park_on_exit": bool(self._config.display.park_on_exit),
++                "park_stops_heartbeat": self._config.display.effective_park_stops_heartbeat,
                  "mcp": {
                      "enabled": bool(self._config.mcp.enabled),
                      "host": self._config.mcp.host,
-@@ -846,7 +973,22 @@ def parse_args() -> argparse.Namespace:
+@@ -846,7 +985,37 @@ def parse_args() -> argparse.Namespace:
      parser.add_argument("--mcp-host", help="Override the FastMCP listening host")
      parser.add_argument("--mcp-port", type=int, help="Override the FastMCP listening port")
      parser.add_argument("--mcp-path", help="Override the FastMCP HTTP path")
@@ -651,7 +691,7 @@ index 25e2ccd..96261fe 100644
 +    parser.add_argument(
 +        "--raw-events",
 +        action="store_true",
-+        help="Emit glasses.raw_packet for every 5402 notification, including frames the gateway consumes itself",
++        help="Emit glasses.raw_packet for every 5402 (and 7402 EvenFile) notification, including frames the gateway consumes itself",
 +    )
 +    parser.add_argument(
 +        "--raw-events-audio",
@@ -663,10 +703,25 @@ index 25e2ccd..96261fe 100644
 +        action="store_true",
 +        help="After page_shutdown leave the native dashboard visible instead of recreating the gateway page",
 +    )
++    parser.add_argument(
++        "--park-stops-heartbeat",
++        dest="park_stops_heartbeat",
++        action="store_const",
++        const=True,
++        default=None,
++        help="While parked, stop the EvenHub heartbeat so the native dashboard redraws pushed widgets (default: on when --park-on-exit is on)",
++    )
++    parser.add_argument(
++        "--no-park-stops-heartbeat",
++        dest="park_stops_heartbeat",
++        action="store_const",
++        const=False,
++        help="Keep the EvenHub heartbeat running while parked",
++    )
      parser.add_argument("--image-gamma", type=float, default=1.0, help="Image gamma correction value (1.0 = no correction, <1.0 = brighter)")
      parser.add_argument("--image-dither", action="store_true", help="Enable 4-bit Floyd-Steinberg dithering")
      parser.add_argument("--api-key", default=None, help="Require this API key for /api requests and WebSocket connections")
-@@ -896,6 +1038,12 @@ def load_config_from_args(args: argparse.Namespace) -> tuple[GatewayConfig, Gate
+@@ -896,6 +1065,14 @@ def load_config_from_args(args: argparse.Namespace) -> tuple[GatewayConfig, Gate
          config.cors.allow_origins = cors_allow_origins
      if args.cors_allow_credentials:
          config.cors.allow_credentials = True
@@ -676,14 +731,33 @@ index 25e2ccd..96261fe 100644
 +        config.ble.raw_events_audio = True
 +    if getattr(args, "park_on_exit", False):
 +        config.display.park_on_exit = True
++    if getattr(args, "park_stops_heartbeat", None) is not None:
++        config.display.park_stops_heartbeat = bool(args.park_stops_heartbeat)
      return config, config_store
  
  
 diff --git a/mentraos/g2/client.py b/mentraos/g2/client.py
-index b4027ab..4106439 100644
+index b4027ab..1daedc7 100644
 --- a/mentraos/g2/client.py
 +++ b/mentraos/g2/client.py
-@@ -83,6 +83,45 @@ class G2ClientConfig:
+@@ -12,6 +12,7 @@ import inspect
+ import logging
+ from dataclasses import dataclass
+ from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
++from uuid import UUID
+ 
+ try:
+     from bleak import BleakClient
+@@ -24,6 +25,8 @@ from .constants import (
+     CHAR_WRITE,
+     ENABLE_POST_IMAGE_TEXT_REDRAW,
+     ENABLE_SYSTEM_EXIT_RUNTIME_RESET,
++    FILE_NOTIFY,
++    FILE_WRITE,
+     INITIAL_TEXT_MAX_BYTES,
+     SCREEN_HEIGHT,
+     SCREEN_WIDTH,
+@@ -83,6 +86,54 @@ class G2ClientConfig:
      image_dither: bool = False
      debug_raw_events: bool = False
      unpair_on_startup: bool = False
@@ -693,6 +767,9 @@ index b4027ab..4106439 100644
 +    raw_events_audio: bool = False
 +    # Leave the native dashboard visible after page_shutdown instead of recreating the page.
 +    park_on_exit: bool = False
++    # While parked, hold the EvenHub heartbeat (cmd 12) so the firmware's own dashboard
++    # redraws pushed widget content. None = follow park_on_exit.
++    park_stops_heartbeat: Optional[bool] = None
 +
 +
 +class G2NotConnectedError(RuntimeError):
@@ -704,6 +781,12 @@ index b4027ab..4106439 100644
 +REINIT_REASON_DASHBOARD_LAUNCH = "dashboard_launch"
 +REINIT_REASON_DISPLAY_REQUEST = "display_request"
 +REINIT_REASON_PAGE_CREATE = "page_create"
++# Characteristics POST /api/raw may write to, keyed by the UUID suffix used in the API.
++RAW_WRITE_CHARS = {"5401": CHAR_WRITE, "7401": FILE_WRITE}
++# Notify characteristics the gateway subscribes to, keyed the same way.
++NOTIFY_CHAR_COMMAND = "5402"
++NOTIFY_CHAR_AUDIO = "6402"
++NOTIFY_CHAR_FILE = "7402"
 +RAW_FRAME_HEADER_BYTE = 0xAA
 +RAW_FRAME_MIN_LENGTH = 8
 +
@@ -729,7 +812,7 @@ index b4027ab..4106439 100644
  
  
  class G2Client:
-@@ -235,6 +274,21 @@ class G2Client:
+@@ -235,6 +286,21 @@ class G2Client:
      async def display(self, request: Mapping[str, Any], remember: bool = True) -> Dict[str, Any]:
          """設計どおりに display payload を fast text または layout へ振り分ける。"""
  
@@ -751,7 +834,7 @@ index b4027ab..4106439 100644
          if request.get("clear"):
              await self.clear_display()
              return {"accepted": True, "mode": "clear", "queued": False}
-@@ -280,6 +334,10 @@ class G2Client:
+@@ -280,6 +346,10 @@ class G2Client:
          await self._emit_status_snapshot()
          if not self._state.ready:
              return
@@ -762,7 +845,7 @@ index b4027ab..4106439 100644
          await self._ensure_startup_page(" ")
          await self._send_even_hub_command(
              even_hub.audio_control_message(enable=enabled, magic_random=self._send_manager.next_magic_random())
-@@ -310,6 +368,125 @@ class G2Client:
+@@ -310,6 +380,147 @@ class G2Client:
          self._state.right.mac_address = ""
          await self._emit_status_snapshot()
  
@@ -772,13 +855,27 @@ index b4027ab..4106439 100644
 +
 +        return self._state.parked
 +
++    @property
++    def park_stops_heartbeat(self) -> bool:
++        """Effective setting: an explicit value wins, otherwise it follows park_on_exit."""
++
++        value = self._config.park_stops_heartbeat
++        return bool(self._config.park_on_exit) if value is None else bool(value)
++
++    def _heartbeat_paused(self) -> bool:
++        """True while parked and configured to hold the EvenHub heartbeat."""
++
++        return bool(self._state.parked) and self.park_stops_heartbeat
++
 +    async def write_raw_frames(
 +        self,
 +        side: str,
 +        frames: Sequence[bytes],
 +        response: bool = False,
++        char: str = "5401",
 +    ) -> Dict[str, Any]:
-+        """Write pre-built BLE frames to the 5401 command characteristic unchanged.
++        """Write pre-built BLE frames unchanged to the 5401 command characteristic
++        (default) or the 7401 EvenFile characteristic.
 +
 +        Frames go through the same serialized write path as the gateway's own
 +        traffic, so they cannot interleave with a multi-packet gateway message.
@@ -786,6 +883,9 @@ index b4027ab..4106439 100644
 +
 +        if side not in ("left", "right", "both"):
 +            raise ValueError("side must be left, right or both")
++        char_uuid = RAW_WRITE_CHARS.get(str(char))
++        if char_uuid is None:
++            raise ValueError(f"char must be one of: {', '.join(RAW_WRITE_CHARS)}")
 +        validated = [validate_raw_frame(frame) for frame in frames]
 +        if not validated:
 +            raise ValueError("at least one frame is required")
@@ -800,15 +900,16 @@ index b4027ab..4106439 100644
 +            raise G2NotConnectedError(f"{', '.join(missing)} G2 lens is not connected")
 +        total = sum(len(frame) for frame in validated)
 +        LOGGER.debug(
-+            "raw write side=%s frames=%d bytes=%d response=%s first=%s",
++            "raw write side=%s char=%s frames=%d bytes=%d response=%s first=%s",
 +            side,
++            char,
 +            len(validated),
 +            total,
 +            response,
 +            validated[0][:12].hex(),
 +        )
-+        await self._send_packets(validated, left=left, right=right, response=response)
-+        return {"accepted": True, "side": side, "bytes": total, "frames": len(validated)}
++        await self._send_packets(validated, left=left, right=right, response=response, char=char_uuid)
++        return {"accepted": True, "side": side, "bytes": total, "frames": len(validated), "char": str(char)}
 +
 +    async def create_page(self) -> Dict[str, Any]:
 +        """Recreate the startup page (unpark) and redisplay the cached request."""
@@ -867,7 +968,11 @@ index b4027ab..4106439 100644
 +        self._state.display_surface = DISPLAY_SURFACE_DASHBOARD
 +        self._state.parked = True
 +        if not already_parked:
-+            LOGGER.info("G2 page parked (%s); native dashboard left visible", trigger)
++            LOGGER.info(
++                "G2 page parked (%s); native dashboard left visible; EvenHub heartbeat %s",
++                trigger,
++                "paused" if self.park_stops_heartbeat else "kept running",
++            )
 +            await self._emit(
 +                "system.reinitialize",
 +                {"reason": REINIT_REASON_PAGE_PARKED, "trigger": trigger},
@@ -888,7 +993,39 @@ index b4027ab..4106439 100644
      async def _unpair_known_devices_before_connect(self) -> None:
          """起動時に既知アドレスへ best-effort の unpair を掛け、その起動では再スキャンへ戻す。"""
  
-@@ -519,6 +696,7 @@ class G2Client:
+@@ -462,23 +673,27 @@ class G2Client:
+             await asyncio.sleep(control_gap_sec)
+             await left_client.start_notify(
+                 CHAR_NOTIFY,
+-                self._make_notify_callback("L", False, generation, left_generation),
++                self._make_notify_callback("L", NOTIFY_CHAR_COMMAND, generation, left_generation),
+             )
+             await asyncio.sleep(control_gap_sec)
+             await left_client.start_notify(
+                 AUDIO_NOTIFY,
+-                self._make_notify_callback("L", True, generation, left_generation),
++                self._make_notify_callback("L", NOTIFY_CHAR_AUDIO, generation, left_generation),
+             )
+             await asyncio.sleep(control_gap_sec)
++            await self._start_file_notify(left_client, "L", generation, left_generation)
++            await asyncio.sleep(control_gap_sec)
+             await right_client.start_notify(
+                 CHAR_NOTIFY,
+-                self._make_notify_callback("R", False, generation, right_generation),
++                self._make_notify_callback("R", NOTIFY_CHAR_COMMAND, generation, right_generation),
+             )
+             await asyncio.sleep(control_gap_sec)
+             await right_client.start_notify(
+                 AUDIO_NOTIFY,
+-                self._make_notify_callback("R", True, generation, right_generation),
++                self._make_notify_callback("R", NOTIFY_CHAR_AUDIO, generation, right_generation),
+             )
++            await asyncio.sleep(control_gap_sec)
++            await self._start_file_notify(right_client, "R", generation, right_generation)
+         except Exception:
+             for client in (left_client, right_client):
+                 with suppress(Exception):
+@@ -519,6 +734,7 @@ class G2Client:
          self._state.left.authenticated = False
          self._state.right.authenticated = False
          self._state.page.reset_runtime_flags()
@@ -896,7 +1033,7 @@ index b4027ab..4106439 100644
          self._heartbeat_counter = 0
  
          await self._send_dev_settings_command(
-@@ -595,19 +773,26 @@ class G2Client:
+@@ -595,19 +811,26 @@ class G2Client:
              if not self._state.ready:
                  return
              cached_display = copy.deepcopy(self._state.page.last_display_request)
@@ -925,7 +1062,7 @@ index b4027ab..4106439 100644
  
      async def _disconnect_clients(self) -> None:
          """現在保持している BleakClient をすべて切断する。"""
-@@ -677,6 +862,7 @@ class G2Client:
+@@ -677,6 +900,7 @@ class G2Client:
          await self._stop_background_tasks()
          await self._disconnect_clients()
          self._state.page.reset_runtime_flags()
@@ -933,7 +1070,25 @@ index b4027ab..4106439 100644
          self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
          self._state.mic_enabled = False
          self._state.left.authenticated = False
-@@ -901,6 +1087,7 @@ class G2Client:
+@@ -817,13 +1041,15 @@ class G2Client:
+             await asyncio.sleep(control_gap_sec)
+             await client.start_notify(
+                 CHAR_NOTIFY,
+-                self._make_notify_callback(source_key, False, generation, side_generation),
++                self._make_notify_callback(source_key, NOTIFY_CHAR_COMMAND, generation, side_generation),
+             )
+             await asyncio.sleep(control_gap_sec)
+             await client.start_notify(
+                 AUDIO_NOTIFY,
+-                self._make_notify_callback(source_key, True, generation, side_generation),
++                self._make_notify_callback(source_key, NOTIFY_CHAR_AUDIO, generation, side_generation),
+             )
++            await asyncio.sleep(control_gap_sec)
++            await self._start_file_notify(client, source_key, generation, side_generation)
+         except Exception:
+             with suppress(Exception):
+                 await client.disconnect()
+@@ -901,6 +1127,7 @@ class G2Client:
          await asyncio.sleep(0.2)
          await self._send_launch_menu()
          await asyncio.sleep(0.2)
@@ -941,29 +1096,43 @@ index b4027ab..4106439 100644
          await self._ensure_startup_page(" ")
          await asyncio.sleep(0.2)
          await self.request_device_info()
-@@ -1609,6 +1796,7 @@ class G2Client:
+@@ -943,6 +1170,12 @@ class G2Client:
+             if not self._is_side_connected("right"):
+                 next_deadline = loop.time() + interval
+                 continue
++            if self._heartbeat_paused():
++                # Parked: the firmware's dashboard only redraws pushed widget content once
++                # the plugin heartbeat stops. The task itself keeps running, so nothing
++                # tied to its lifetime changes and sending resumes as soon as parked clears.
++                next_deadline = loop.time() + interval
++                continue
+             await self._send_even_hub_command(
+                 even_hub.heartbeat_message(self._send_manager.next_magic_random()),
+                 urgent=True,
+@@ -1609,6 +1842,8 @@ class G2Client:
          left: bool,
          right: bool,
          urgent: bool = False,
 +        response: bool = False,
++        char: UUID = CHAR_WRITE,
      ) -> None:
          """packet 群を side 指定どおりに送る。
  
-@@ -1637,7 +1825,7 @@ class G2Client:
+@@ -1637,7 +1872,7 @@ class G2Client:
                              missing_sides.append("right")
                          else:
                              writes.append(
 -                                ("right", self._right_client.write_gatt_char(CHAR_WRITE, packet, response=False))
-+                                ("right", self._right_client.write_gatt_char(CHAR_WRITE, packet, response=response))
++                                ("right", self._right_client.write_gatt_char(char, packet, response=response))
                              )
                      elif right:
                          missing_sides.append("right")
-@@ -1650,12 +1838,12 @@ class G2Client:
+@@ -1650,12 +1885,12 @@ class G2Client:
                              missing_sides.append("left")
                          else:
                              writes.append(
 -                                ("left", self._left_client.write_gatt_char(CHAR_WRITE, packet, response=False))
-+                                ("left", self._left_client.write_gatt_char(CHAR_WRITE, packet, response=response))
++                                ("left", self._left_client.write_gatt_char(char, packet, response=response))
                              )
                      elif left:
                          missing_sides.append("left")
@@ -973,7 +1142,59 @@ index b4027ab..4106439 100644
                      if writes:
                          results = await asyncio.gather(
                              *(write for _, write in writes),
-@@ -1791,6 +1979,7 @@ class G2Client:
+@@ -1691,22 +1926,48 @@ class G2Client:
+     def _make_notify_callback(
+         self,
+         source_key: str,
+-        is_audio: bool,
++        char: str,
+         generation: int,
+         side_generation: int,
+     ) -> Callable[[Any, bytearray], None]:
+-        """Bleak の通知コールバックを asyncio タスクへ橋渡しする。"""
++        """Bleak の通知コールバックを asyncio タスクへ橋渡しする。
++
++        char is the characteristic suffix the callback was registered for
++        ("5402" command, "6402" mic, "7402" EvenFile).
++        """
+ 
+         def callback(_: Any, data: bytearray) -> None:
+             if self._loop is None:
+                 return
+             self._loop.call_soon_threadsafe(
+                 asyncio.create_task,
+-                self._handle_notification(bytes(data), source_key, is_audio, generation, side_generation),
++                self._handle_notification(bytes(data), source_key, char, generation, side_generation),
+             )
+ 
+         return callback
+ 
++    async def _start_file_notify(
++        self,
++        client: Any,
++        source_key: str,
++        generation: int,
++        side_generation: int,
++    ) -> None:
++        """Subscribe to the 7402 EvenFile notify characteristic; optional, never fatal.
++
++        The gateway itself does not speak the EvenFile protocol; the subscription only
++        feeds glasses.raw_packet (char 7402) for hosts that drive 7401 through /api/raw.
++        A firmware without the 7450 service must not break the connection.
++        """
++
++        try:
++            await client.start_notify(
++                FILE_NOTIFY,
++                self._make_notify_callback(source_key, NOTIFY_CHAR_FILE, generation, side_generation),
++            )
++        except Exception as exc:  # pragma: no cover - depends on firmware GATT table
++            LOGGER.warning("%s: 7402 EvenFile notify unavailable (%s); raw 7402 events disabled", source_key, exc)
++
+     def _make_disconnect_callback(
+         self,
+         side: str,
+@@ -1791,6 +2052,7 @@ class G2Client:
                  self._state.right.connected = False
                  self._state.right.authenticated = False
                  self._state.page.reset_runtime_flags()
@@ -981,7 +1202,7 @@ index b4027ab..4106439 100644
                  self._state.mic_enabled = False
                  self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
  
-@@ -1827,6 +2016,7 @@ class G2Client:
+@@ -1827,6 +2089,7 @@ class G2Client:
              self._connection_generation += 1
              self._state.ready = False
              self._state.page.reset_runtime_flags()
@@ -989,13 +1210,26 @@ index b4027ab..4106439 100644
              self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
              self._state.mic_enabled = False
              self._state.left.connected = False
-@@ -1857,7 +2047,21 @@ class G2Client:
+@@ -1851,13 +2114,34 @@ class G2Client:
+         self,
+         raw_data: bytes,
+         source_key: str,
+-        is_audio: bool,
++        char: str,
+         generation: int,
+         side_generation: int,
      ) -> None:
-         """notify / audio notify を正規化イベントへ変換する。"""
+-        """notify / audio notify を正規化イベントへ変換する。"""
++        """notify / audio notify を正規化イベントへ変換する。
  
 -        if generation != self._connection_generation or self._disconnect_in_progress:
++        char: "5402" (command), "6402" (mic) or "7402" (EvenFile replies). 7402 frames
++        are only surfaced as raw packets; the gateway does not parse them.
++        """
++
 +        if generation != self._connection_generation:
 +            return
++        is_audio = char == NOTIFY_CHAR_AUDIO
 +        # Raw packets are emitted before any gateway-side filtering so a host sees
 +        # every notification, including frames the gateway consumes or acks itself.
 +        if self._raw_events_enabled(is_audio):
@@ -1005,14 +1239,16 @@ index b4027ab..4106439 100644
 +                    "source": source_key,
 +                    "size": len(raw_data),
 +                    "hex": raw_data.hex(),
-+                    "char": "6402" if is_audio else "5402",
++                    "char": char,
 +                },
 +            )
++        if char == NOTIFY_CHAR_FILE:
++            return
 +        if self._disconnect_in_progress:
              return
          side = "left" if source_key == "L" else "right"
          if side_generation != self._side_generations.get(side):
-@@ -1865,12 +2069,6 @@ class G2Client:
+@@ -1865,12 +2149,6 @@ class G2Client:
          if side in self._reconnecting_sides:
              return
  
@@ -1025,12 +1261,12 @@ index b4027ab..4106439 100644
          if is_audio:
              await self._handle_audio_data(raw_data, source_key)
              return
-@@ -1889,6 +2087,13 @@ class G2Client:
+@@ -1889,6 +2167,13 @@ class G2Client:
          else:
              LOGGER.debug("Unhandled service id: %s", service_id)
  
 +    def _raw_events_enabled(self, is_audio: bool) -> bool:
-+        """--raw-events / --debug-raw-events cover 5402; audio additionally needs raw_events_audio."""
++        """--raw-events / --debug-raw-events cover 5402 and 7402; audio additionally needs raw_events_audio."""
 +
 +        if not (self._config.raw_events or self._config.debug_raw_events):
 +            return False
@@ -1039,7 +1275,7 @@ index b4027ab..4106439 100644
      async def _handle_even_hub_payload(self, payload: bytes) -> None:
          """EvenHub 応答を state とイベントへ反映する。"""
  
-@@ -1910,9 +2115,15 @@ class G2Client:
+@@ -1910,9 +2195,15 @@ class G2Client:
              if menu_app_id == self._launch_menu_app_id:
                  await self._rebuild_display_from_launch_menu()
  
@@ -1056,17 +1292,27 @@ index b4027ab..4106439 100644
  
          if parsed.get("system_exit") and ENABLE_SYSTEM_EXIT_RUNTIME_RESET:
              runtime_reset_reason = parsed.get("system_exit_reason") or "system_exit"
-@@ -2085,4 +2296,4 @@ class G2Client:
+@@ -2085,4 +2376,4 @@ class G2Client:
          await self._emit_status_snapshot()
  
  
 -__all__ = ["G2Client", "G2ClientConfig"]
 +__all__ = ["G2Client", "G2ClientConfig", "G2NotConnectedError", "validate_raw_frame"]
 diff --git a/mentraos/g2/constants.py b/mentraos/g2/constants.py
-index 8b903d5..cc607f6 100644
+index 8b903d5..975d884 100644
 --- a/mentraos/g2/constants.py
 +++ b/mentraos/g2/constants.py
-@@ -101,6 +101,9 @@ class OsEventType(IntEnum):
+@@ -11,6 +11,9 @@ from uuid import UUID
+ CHAR_WRITE = UUID("00002760-08C2-11E1-9073-0E8AC72E5401")
+ CHAR_NOTIFY = UUID("00002760-08C2-11E1-9073-0E8AC72E5402")
+ AUDIO_NOTIFY = UUID("00002760-08C2-11E1-9073-0E8AC72E6402")
++# EvenFile service (0e8ac72e7450): notification JSON / whitelist file transfers.
++FILE_WRITE = UUID("00002760-08C2-11E1-9073-0E8AC72E7401")
++FILE_NOTIFY = UUID("00002760-08C2-11E1-9073-0E8AC72E7402")
+ SERVICE_UUID = UUID("00002760-08C2-11E1-9073-0E8AC72E0000")
+ CLIENT_CHARACTERISTIC_CONFIG = UUID("00002902-0000-1000-8000-00805F9B34FB")
+ 
+@@ -101,6 +104,9 @@ class OsEventType(IntEnum):
      FOREGROUND_EXIT = 5
      ABNORMAL_EXIT = 6
      SYSTEM_EXIT = 7
@@ -1076,6 +1322,15 @@ index 8b903d5..cc607f6 100644
  
      @classmethod
      def from_int(cls, value: int):
+@@ -146,6 +152,8 @@ __all__ = [
+     "ENABLE_SYSTEM_EXIT_RUNTIME_RESET",
+     "EvenHubCmd",
+     "EvenHubResponseCmd",
++    "FILE_NOTIFY",
++    "FILE_WRITE",
+     "G2SettingCommandId",
+     "HEADER_BYTE",
+     "IMAGE_MAX_HEIGHT",
 diff --git a/mentraos/g2/events.py b/mentraos/g2/events.py
 index d5d7e36..6d25ddb 100644
 --- a/mentraos/g2/events.py
@@ -1280,13 +1535,15 @@ index 0000000..2f49e4d
 +    unittest.main()
 diff --git a/tests/test_park_state.py b/tests/test_park_state.py
 new file mode 100644
-index 0000000..23696c0
+index 0000000..da11424
 --- /dev/null
 +++ b/tests/test_park_state.py
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,433 @@
 +from __future__ import annotations
 +
++import asyncio
 +import unittest
++from contextlib import suppress
 +from typing import Any
 +
 +from tests._support import (
@@ -1548,14 +1805,115 @@ index 0000000..23696c0
 +        self.assertFalse(h.client.parked)
 +
 +
++class HeartbeatPauseTests(unittest.IsolatedAsyncioTestCase):
++    """While parked the EvenHub heartbeat (cmd 12) is held; it resumes when the page returns."""
++
++    HEARTBEAT = int(EvenHubCmd.HEARTBEAT)
++    INTERVAL = 0.005
++    WINDOW = 0.15  # several intervals even with Windows' ~16 ms timer granularity
++
++    def _start_loop(self, h: Harness) -> asyncio.Task[None]:
++        return asyncio.create_task(h.client._even_hub_heartbeat_loop(h.client._connection_generation))
++
++    async def _stop_loop(self, task: asyncio.Task[None]) -> None:
++        task.cancel()
++        with suppress(asyncio.CancelledError):
++            await task
++
++    async def _heartbeats_in_window(self, h: Harness) -> int:
++        h.sent.clear()
++        await asyncio.sleep(self.WINDOW)
++        return h.sent_cmds().count(self.HEARTBEAT)
++
++    def test_effective_setting_follows_park_on_exit_by_default(self) -> None:
++        self.assertFalse(Harness().client.park_stops_heartbeat)
++        self.assertTrue(Harness(park_on_exit=True).client.park_stops_heartbeat)
++        self.assertFalse(Harness(park_on_exit=True, park_stops_heartbeat=False).client.park_stops_heartbeat)
++        self.assertTrue(Harness(park_stops_heartbeat=True).client.park_stops_heartbeat)
++        # not parked -> never paused, whatever the flag says
++        self.assertFalse(Harness(park_stops_heartbeat=True).client._heartbeat_paused())
++
++    async def test_heartbeat_stops_while_parked_and_resumes_on_create(self) -> None:
++        h = Harness(park_on_exit=True, heartbeat_interval_sec=self.INTERVAL)
++        task = self._start_loop(h)
++        try:
++            self.assertGreater(await self._heartbeats_in_window(h), 0, "heartbeat runs before parking")
++
++            await h.client._handle_even_hub_payload(page_shutdown_payload(9))
++            self.assertTrue(h.state.parked)
++            self.assertTrue(h.client._heartbeat_paused())
++            self.assertEqual(await self._heartbeats_in_window(h), 0, "no heartbeat while parked")
++            self.assertFalse(task.done(), "the heartbeat task must stay alive (no reconnect watchdog trip)")
++
++            await h.client.create_page()
++            self.assertFalse(h.state.parked)
++            self.assertGreater(await self._heartbeats_in_window(h), 0, "heartbeat resumes after page create")
++        finally:
++            await self._stop_loop(task)
++
++    async def test_heartbeat_resumes_on_display_request_and_menu_launch(self) -> None:
++        # /api/display path
++        h = Harness(park_on_exit=True, heartbeat_interval_sec=self.INTERVAL)
++        task = self._start_loop(h)
++        try:
++            await h.client._handle_even_hub_payload(page_shutdown_payload(9))
++            self.assertEqual(await self._heartbeats_in_window(h), 0)
++            await h.client.display({"text": "back"})
++            self.assertGreater(await self._heartbeats_in_window(h), 0)
++        finally:
++            await self._stop_loop(task)
++
++        # dashboard menu launch path
++        h2 = Harness(park_on_exit=True, heartbeat_interval_sec=self.INTERVAL)
++        task2 = self._start_loop(h2)
++        try:
++            await h2.client._handle_even_hub_payload(page_shutdown_payload(9))
++            self.assertEqual(await self._heartbeats_in_window(h2), 0)
++            await h2.client._handle_even_hub_payload(menu_select_payload(h2.client._launch_menu_app_id))
++            self.assertFalse(h2.state.parked)
++            self.assertGreater(await self._heartbeats_in_window(h2), 0)
++        finally:
++            await self._stop_loop(task2)
++
++    async def test_heartbeat_keeps_running_while_parked_when_disabled(self) -> None:
++        h = Harness(park_on_exit=True, park_stops_heartbeat=False, heartbeat_interval_sec=self.INTERVAL)
++        task = self._start_loop(h)
++        try:
++            await h.client._handle_even_hub_payload(page_shutdown_payload(9))
++            self.assertTrue(h.state.parked)
++            self.assertGreater(await self._heartbeats_in_window(h), 0)
++        finally:
++            await self._stop_loop(task)
++
++    async def test_explicit_shutdown_without_park_on_exit_needs_the_flag(self) -> None:
++        # park_on_exit off: /api/page shutdown parks, heartbeat continues unless asked otherwise
++        h = Harness(heartbeat_interval_sec=self.INTERVAL)
++        task = self._start_loop(h)
++        try:
++            await h.client.shutdown_page()
++            self.assertTrue(h.state.parked)
++            self.assertGreater(await self._heartbeats_in_window(h), 0)
++        finally:
++            await self._stop_loop(task)
++
++        h2 = Harness(park_stops_heartbeat=True, heartbeat_interval_sec=self.INTERVAL)
++        task2 = self._start_loop(h2)
++        try:
++            await h2.client.shutdown_page()
++            self.assertTrue(h2.state.parked)
++            self.assertEqual(await self._heartbeats_in_window(h2), 0)
++        finally:
++            await self._stop_loop(task2)
++
++
 +class RawEventTests(unittest.IsolatedAsyncioTestCase):
 +    FRAME = bytes.fromhex("aa1201040101e0000802abcd")  # glasses->phone EvenHub cmd 2 (consumed by gateway)
 +    AUDIO = bytes(range(50))
 +
-+    async def _notify(self, h: Harness, data: bytes, source: str = "R", is_audio: bool = False) -> None:
++    async def _notify(self, h: Harness, data: bytes, source: str = "R", char: str = "5402") -> None:
 +        gen = h.client._connection_generation
 +        side_gen = h.client._side_generations["left" if source == "L" else "right"]
-+        await h.client._handle_notification(data, source, is_audio, gen, side_gen)
++        await h.client._handle_notification(data, source, char, gen, side_gen)
 +
 +    async def test_raw_events_off_by_default(self) -> None:
 +        h = Harness()
@@ -1579,30 +1937,47 @@ index 0000000..23696c0
 +
 +    async def test_audio_needs_separate_flag(self) -> None:
 +        h = Harness(raw_events=True)
-+        await self._notify(h, self.AUDIO, is_audio=True)
++        await self._notify(h, self.AUDIO, char="6402")
 +        self.assertEqual(h.kinds("glasses.raw_packet"), [])
 +        self.assertEqual(len(h.kinds("glasses.mic_audio")), 1)
 +
 +        h2 = Harness(raw_events=True, raw_events_audio=True)
-+        await self._notify(h2, self.AUDIO, is_audio=True)
++        await self._notify(h2, self.AUDIO, char="6402")
 +        raw = h2.kinds("glasses.raw_packet")
 +        self.assertEqual(len(raw), 1)
 +        self.assertEqual(raw[0]["char"], "6402")
 +
 +    async def test_stale_generation_is_ignored(self) -> None:
 +        h = Harness(raw_events=True)
-+        await h.client._handle_notification(self.FRAME, "R", False, h.client._connection_generation + 1, 0)
++        await h.client._handle_notification(self.FRAME, "R", "5402", h.client._connection_generation + 1, 0)
 +        self.assertEqual(h.kinds("glasses.raw_packet"), [])
++
++    async def test_file_notify_7402_is_raw_only(self) -> None:
++        # EvenFile START reply [cid 0, rsp 0] on 7402: raw-only, not fed to the EvenHub parser
++        reply = bytes.fromhex("aa1201040101c40000000000")
++        h = Harness()
++        await self._notify(h, reply, char="7402")
++        self.assertEqual(h.kinds("glasses.raw_packet"), [])
++
++        h2 = Harness(raw_events=True)
++        await self._notify(h2, reply, char="7402")
++        raw = h2.kinds("glasses.raw_packet")
++        self.assertEqual(len(raw), 1)
++        self.assertEqual(raw[0]["char"], "7402")
++        self.assertEqual(raw[0]["hex"], reply.hex())
++        # nothing else was produced from it and no partial reassembly state was left behind
++        self.assertEqual([e["kind"] for e in h2.events], ["glasses.raw_packet"])
++        self.assertEqual(h2.client._receive_manager._partials, {})
 +
 +
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/tests/test_raw_api.py b/tests/test_raw_api.py
 new file mode 100644
-index 0000000..55a877e
+index 0000000..57fc609
 --- /dev/null
 +++ b/tests/test_raw_api.py
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,288 @@
 +from __future__ import annotations
 +
 +import json
@@ -1617,7 +1992,7 @@ index 0000000..55a877e
 +import gateway_server  # noqa: E402  (after stub cleanup on purpose)
 +from gateway_config import GatewayConfig, GatewayConfigStore  # noqa: E402
 +from mentraos.g2.client import G2Client, G2ClientConfig, G2NotConnectedError, validate_raw_frame  # noqa: E402
-+from mentraos.g2.constants import CHAR_WRITE  # noqa: E402
++from mentraos.g2.constants import CHAR_WRITE, FILE_WRITE  # noqa: E402
 +
 +PRELUDE_HEX = "aa219213010101200802109c01220a1a081206120408001000a142"
 +KEEPALIVE_HEX = "aa21050801018000080e10056a00" + "0000"  # 8-byte payload incl. CRC placeholder
@@ -1625,32 +2000,42 @@ index 0000000..55a877e
 +
 +class ParseRawRequestTests(unittest.TestCase):
 +    def test_single_hex_frame(self) -> None:
-+        side, frames, response = gateway_server.parse_raw_request({"side": "right", "hex": PRELUDE_HEX})
++        side, frames, response, char = gateway_server.parse_raw_request({"side": "right", "hex": PRELUDE_HEX})
 +        self.assertEqual(side, "right")
 +        self.assertEqual(frames, [bytes.fromhex(PRELUDE_HEX)])
 +        self.assertFalse(response)
++        self.assertEqual(char, "5401")
 +
 +    def test_hex_is_passed_through_unchanged(self) -> None:
 +        # Deliberately wrong CRC / odd seq: the gateway must not touch them.
 +        frame = "aa21ff0a0101e020080c10ff72020800beef"
-+        _, frames, _ = gateway_server.parse_raw_request({"side": "left", "hex": frame})
++        _, frames, _, _ = gateway_server.parse_raw_request({"side": "left", "hex": frame})
 +        self.assertEqual(frames[0].hex(), frame)
 +
 +    def test_accepts_whitespace_uppercase_and_0x_prefix(self) -> None:
 +        spaced = "0x" + " ".join(PRELUDE_HEX[i : i + 2] for i in range(0, len(PRELUDE_HEX), 2)).upper()
-+        _, frames, _ = gateway_server.parse_raw_request({"side": "both", "hex": spaced})
++        _, frames, _, _ = gateway_server.parse_raw_request({"side": "both", "hex": spaced})
 +        self.assertEqual(frames[0].hex(), PRELUDE_HEX)
 +
 +    def test_frames_list_preserves_order(self) -> None:
 +        second = "aa21060801018000080e10066a000000"
-+        _, frames, _ = gateway_server.parse_raw_request({"side": "both", "frames": [KEEPALIVE_HEX, second]})
++        _, frames, _, _ = gateway_server.parse_raw_request({"side": "both", "frames": [KEEPALIVE_HEX, second]})
 +        self.assertEqual([f.hex() for f in frames], [KEEPALIVE_HEX, second])
 +
 +    def test_response_flag(self) -> None:
-+        _, _, response = gateway_server.parse_raw_request({"side": "left", "hex": PRELUDE_HEX, "response": True})
++        _, _, response, _ = gateway_server.parse_raw_request({"side": "left", "hex": PRELUDE_HEX, "response": True})
 +        self.assertTrue(response)
 +        with self.assertRaisesRegex(ValueError, "response must be a boolean"):
 +            gateway_server.parse_raw_request({"side": "left", "hex": PRELUDE_HEX, "response": "yes"})
++
++    def test_char_field(self) -> None:
++        _, _, _, char = gateway_server.parse_raw_request({"side": "right", "hex": PRELUDE_HEX, "char": "7401"})
++        self.assertEqual(char, "7401")
++        _, _, _, char = gateway_server.parse_raw_request({"side": "right", "hex": PRELUDE_HEX, "char": " 0x5401 "})
++        self.assertEqual(char, "5401")
++        for bad in ("5402", "7402", "6401", "", "abcd", 7401, None):
++            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "char must be"):
++                gateway_server.parse_raw_request({"side": "right", "hex": PRELUDE_HEX, "char": bad})
 +
 +    def test_rejects_bad_side(self) -> None:
 +        with self.assertRaisesRegex(ValueError, "side must be one of"):
@@ -1703,13 +2088,19 @@ index 0000000..55a877e
 +class _FakeClient:
 +    def __init__(self, connected: bool = True) -> None:
 +        self.connected = connected
-+        self.calls: list[tuple[str, list[bytes], bool]] = []
++        self.calls: list[tuple[str, list[bytes], bool, str]] = []
 +
-+    async def write_raw_frames(self, side: str, frames, response: bool = False):
++    async def write_raw_frames(self, side: str, frames, response: bool = False, char: str = "5401"):
 +        if not self.connected:
 +            raise G2NotConnectedError(f"{side} G2 lens is not connected")
-+        self.calls.append((side, list(frames), response))
-+        return {"accepted": True, "side": side, "bytes": sum(len(f) for f in frames), "frames": len(frames)}
++        self.calls.append((side, list(frames), response, char))
++        return {
++            "accepted": True,
++            "side": side,
++            "bytes": sum(len(f) for f in frames),
++            "frames": len(frames),
++            "char": char,
++        }
 +
 +
 +def _make_app() -> gateway_server.GatewayServerApp:
@@ -1729,8 +2120,32 @@ index 0000000..55a877e
 +
 +        self.assertEqual(response.status, 200)
 +        body = json.loads(response.text)
-+        self.assertEqual(body, {"accepted": True, "side": "both", "bytes": 27, "frames": 1})
-+        self.assertEqual(fake.calls, [("both", [bytes.fromhex(PRELUDE_HEX)], False)])
++        self.assertEqual(body, {"accepted": True, "side": "both", "bytes": 27, "frames": 1, "char": "5401"})
++        self.assertEqual(fake.calls, [("both", [bytes.fromhex(PRELUDE_HEX)], False, "5401")])
++
++    async def test_file_char_is_passed_through(self) -> None:
++        app = _make_app()
++        fake = _FakeClient()
++        app._client = fake  # type: ignore[assignment]
++
++        response = await app.handle_raw(_FakeRequest({"side": "right", "hex": PRELUDE_HEX, "char": "7401"}))
++
++        self.assertEqual(response.status, 200)
++        self.assertEqual(json.loads(response.text)["char"], "7401")
++        self.assertEqual(fake.calls, [("right", [bytes.fromhex(PRELUDE_HEX)], False, "7401")])
++
++    async def test_unknown_char_is_400(self) -> None:
++        app = _make_app()
++        fake = _FakeClient()
++        app._client = fake  # type: ignore[assignment]
++
++        response = await app.handle_raw(_FakeRequest({"side": "right", "hex": PRELUDE_HEX, "char": "5402"}))
++
++        self.assertEqual(response.status, 400)
++        body = json.loads(response.text)
++        self.assertFalse(body["accepted"])
++        self.assertIn("char must be one of", body["error"])
++        self.assertEqual(fake.calls, [])
 +
 +    async def test_bad_hex_is_400(self) -> None:
 +        app = _make_app()
@@ -1766,6 +2181,8 @@ index 0000000..55a877e
 +        app = _make_app()
 +        payload = app.status_payload()
 +        self.assertIn("park_on_exit", payload["server"])
++        self.assertIn("park_stops_heartbeat", payload["server"])
++        self.assertFalse(payload["server"]["park_stops_heartbeat"])
 +        self.assertIn("raw_events", payload["server"])
 +        self.assertIn("parked", payload["glasses"])
 +        self.assertIn("display_surface", payload["glasses"])
@@ -1787,9 +2204,28 @@ index 0000000..55a877e
 +
 +        result = await client.write_raw_frames("right", frames)
 +
-+        self.assertEqual(result, {"accepted": True, "side": "right", "bytes": 27 + 16, "frames": 2})
++        self.assertEqual(result, {"accepted": True, "side": "right", "bytes": 27 + 16, "frames": 2, "char": "5401"})
 +        self.assertEqual([w[1] for w in right.writes], frames)
 +        self.assertTrue(all(w[0] == CHAR_WRITE and w[2] is False for w in right.writes))
++        self.assertEqual(left.writes, [])
++
++    async def test_file_char_writes_to_7401(self) -> None:
++        client, left, right = self._client()
++        frame = bytes.fromhex(PRELUDE_HEX)
++
++        result = await client.write_raw_frames("right", [frame], char="7401")
++
++        self.assertEqual(result["char"], "7401")
++        self.assertEqual(right.writes, [(FILE_WRITE, frame, False)])
++        self.assertEqual(left.writes, [])
++        self.assertNotEqual(FILE_WRITE, CHAR_WRITE)
++        self.assertTrue(str(FILE_WRITE).lower().endswith("0e8ac72e7401"))
++
++    async def test_unknown_char_raises_value_error_before_writing(self) -> None:
++        client, left, right = self._client()
++        with self.assertRaisesRegex(ValueError, "char must be one of"):
++            await client.write_raw_frames("right", [bytes.fromhex(PRELUDE_HEX)], char="5402")
++        self.assertEqual(right.writes, [])
 +        self.assertEqual(left.writes, [])
 +
 +    async def test_both_and_response_flag(self) -> None:

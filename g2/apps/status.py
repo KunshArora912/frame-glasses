@@ -23,7 +23,8 @@ class Status(App):
             f"gateway   {'up' if getattr(gw, 'gateway_up', True) else 'down'}   {getattr(gw, 'base', '')}",
             f"speech    {('ready, ' + ctx.speech.model) if ctx.speech_ready else 'off'}",
             f"brain     {ctx.brain_name(ctx.brain)}",
-            f"launcher  up {up // 3600:d}h {up % 3600 // 60:02d}m   last gesture {getattr(gw, 'last_gesture', None) or '-'}",
+            f"launcher  up {up // 3600:d}h {up % 3600 // 60:02d}m",
+            f"last gesture {getattr(gw, 'last_gesture', None) or '-'}"[:ctx.COLS],
             "all data stays on this laptop",
         ]
         return ctx.screen(self.name, body, "tap = refresh   double tap = exit")

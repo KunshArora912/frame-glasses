@@ -81,4 +81,4 @@ class Assistant(App):
         except Exception as exc:
             ctx.log.exception("assistant failed")
             self.state = "idle"
-            await ctx.show(self.text(ctx, [f"Failed: {type(exc).__name__}", str(exc)[:ctx.COLS * 2], "", "Tap to try again."]))
+            await ctx.show(self.text(ctx, [f"Failed: {type(exc).__name__}", *ctx.wrap(str(exc))[:2], "", "Tap to try again."]))
