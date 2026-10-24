@@ -242,6 +242,13 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         await self.go("double_tap")
         self.assertEqual(self.la.screen, "home")
 
+    async def test_double_tap_on_home_leaves_board_when_start_parked(self):
+        self.la.start_parked = True
+        await self.la.home()
+        await self.go("double_tap")
+        self.assertEqual(self.la.screen, "parked")
+        self.assertEqual(self.gw.pages[-1], {"shutdown": True, "exit_mode": 1})
+
     def test_paginate_respects_rows_and_width(self):
         pages = paginate("word " * 400)
         self.assertTrue(all(len(p) <= 8 for p in pages))

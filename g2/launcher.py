@@ -52,9 +52,11 @@ class Launcher:
                  data_dir: Path | None = None,
                  dev: bool = False,
                  hub=None,                            # hub: g2/hub.py Hub (ctx.native / ctx.hub), optional
+                 phone=None,                          # --- phone link: g2/phone_link.py PhoneLink (ctx.phone)
                  start_parked: bool = False) -> None: # start_parked: native dashboard first, board only on launch
         self.gw = gw
         self.hub = hub                                # --- hub (g2/hub.py)
+        self.phone = phone                            # --- phone link
         self.start_parked = start_parked              # --- start parked
         self._last_park = 0.0
         self.speech = speech
@@ -241,7 +243,15 @@ class Launcher:
         if gesture not in ("single_tap", "double_tap", "swipe_up", "swipe_down", "long_press_release"):
             return                       # foreground_enter/exit etc. are surface notices
         if gesture == "double_tap":
-            await self.home()
+            # Even's rule: double tap closes what is open. Inside an app that
+            # means back to our home; on our home it means leave the board
+            # entirely and give the screen back to Even's dashboard.
+            if self.screen == "home" and self.start_parked:
+                await self.leave_current()
+                self._last_park = 0.0
+                await self.park()
+            else:
+                await self.home()
             return
         if self.screen == "home":
             await self.touch_home(gesture)
@@ -266,6 +276,8 @@ class Launcher:
         log.info("glasses %s (%s)", "ready" if ready else "away", phase)
         if self.hub is not None:                      # --- hub (g2/hub.py): menu re-push after the gateway's own
             self.hub.on_connection(ready)
+        if self.phone is not None:                    # --- phone link: re-enable notifications after a reconnect
+            self.phone.on_glasses_connection(ready)
         if ready and self.start_parked and self.screen == "parked":   # --- start parked: never draw home here
             await self.park()
             return
@@ -396,6 +408,11 @@ class Launcher:
                 self.native_apps.attach()
             except Exception:
                 log.exception("native apps attach failed")
+        if self.phone is not None:                    # --- phone link: notifications + GPS from the phone
+            try:
+                await self.phone.start()
+            except Exception:
+                log.exception("phone link start failed; launcher continues without it")
         if first_app and await self.open(first_app):
             return
         if self.start_parked:                         # --- start parked: home only on dashboard_launch / page_create
@@ -417,6 +434,11 @@ class Launcher:
                     await r
             except Exception:
                 log.exception("%s stop failed", name)
+        if self.phone is not None:                    # --- phone link
+            try:
+                await self.phone.stop()
+            except Exception:
+                log.exception("phone link stop failed")
         if self.hub is not None:                      # --- hub (g2/hub.py)
             try:
                 await self.hub.stop()
@@ -434,6 +456,7 @@ async def main(argv=None) -> int:
     ap.add_argument("--app", help="open this app right away instead of the home screen")
     ap.add_argument("--no-dev", action="store_true", help="disable hot reload and dev.py push")
     ap.add_argument("--hub", action="store_true", help="run the native dashboard hub (g2/hub.py) in this process")  # --- hub
+    ap.add_argument("--no-phone", action="store_true", help="do not start the phone link (g2/phone_link.py)")  # --- phone link
     ap.add_argument("--start-parked", dest="start_parked", action="store_true", default=True,                        # --- start parked
                     help="(default) show the firmware's dashboard on connect; the board only when launched from the glasses menu")
     ap.add_argument("--board", dest="start_parked", action="store_false", help="draw our board right away (old behaviour)")
@@ -469,7 +492,12 @@ async def main(argv=None) -> int:
         from g2.native.transport import GatewayRawTransport, Glasses
         hub = Hub(Glasses(GatewayRawTransport(a.gateway), log=logging.getLogger("g2.native").info),
                   HubConfig.load(), store=store)
-    launcher = Launcher(gw, speech, brain, store, idle_blank_s=a.idle_blank, dev=not a.no_dev, hub=hub,
+    phone = None
+    if hub is not None and not a.no_phone:           # --- phone link: starts with the hub, exposed as hub.phone / ctx.phone
+        from g2.phone_link import PhoneConfig, attach as phone_attach
+        pcfg = PhoneConfig.from_dict(hub.config.phone)   # already a PhoneConfig; dict-tolerant
+        phone = phone_attach(hub, pcfg) if pcfg.enabled else None
+    launcher = Launcher(gw, speech, brain, store, idle_blank_s=a.idle_blank, dev=not a.no_dev, hub=hub, phone=phone,
                         start_parked=a.start_parked and not a.app)       # --- start parked
     log.info("apps: %s", ", ".join(x.name for x in launcher.apps) or "none")
 
