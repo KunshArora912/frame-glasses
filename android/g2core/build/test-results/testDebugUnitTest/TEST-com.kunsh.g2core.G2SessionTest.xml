@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.kunsh.g2core.G2SessionTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-10-24T22:27:30.995Z" hostname="THEBEAST" time="1.735">
+  <properties/>
+  <testcase name="pushHelpersWithoutHeartbeat" classname="com.kunsh.g2core.G2SessionTest" time="0.328"/>
+  <testcase name="micPacketsAreExposedFromTheLeftArm" classname="com.kunsh.g2core.G2SessionTest" time="0.011"/>
+  <testcase name="startupPlanEndToEnd" classname="com.kunsh.g2core.G2SessionTest" time="0.222"/>
+  <testcase name="noReplyTimesOutToNull" classname="com.kunsh.g2core.G2SessionTest" time="0.069"/>
+  <testcase name="pushHelpersWithHeartbeatBracket" classname="com.kunsh.g2core.G2SessionTest" time="0.039"/>
+  <testcase name="reinitRightArmSendsAuthThenHousekeeping" classname="com.kunsh.g2core.G2SessionTest" time="0.175"/>
+  <testcase name="replyMatchedOnSidAndMagicNotJustSid" classname="com.kunsh.g2core.G2SessionTest" time="0.003"/>
+  <testcase name="readSettingsAndKeepalive" classname="com.kunsh.g2core.G2SessionTest" time="0.028"/>
+  <testcase name="bothSidesLeftFireAndForgetThenWaitOnRight" classname="com.kunsh.g2core.G2SessionTest" time="0.003"/>
+  <testcase name="fragmentedInboundIsReassembledForWaitersAndListeners" classname="com.kunsh.g2core.G2SessionTest" time="0.026"/>
+  <testcase name="startupWithHeartbeatWeatherAndMenu" classname="com.kunsh.g2core.G2SessionTest" time="0.255"/>
+  <testcase name="evenAiSequence" classname="com.kunsh.g2core.G2SessionTest" time="0.174"/>
+  <testcase name="keepaliveWatchdogCallsLinkLostAfterTwoMisses" classname="com.kunsh.g2core.G2SessionTest" time="0.125"/>
+  <testcase name="fragmentedRequestMatchesMagicFromFirstFragment" classname="com.kunsh.g2core.G2SessionTest" time="0.014"/>
+  <testcase name="startupStopsWhenRightArmDoesNotAuthenticate" classname="com.kunsh.g2core.G2SessionTest" time="0.063"/>
+  <testcase name="notifyCommunityForm" classname="com.kunsh.g2core.G2SessionTest" time="0.08"/>
+  <testcase name="notifyHubForm" classname="com.kunsh.g2core.G2SessionTest" time="0.063"/>
+  <testcase name="notifyHubFormFailsOnStartTimeout" classname="com.kunsh.g2core.G2SessionTest" time="0.05"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

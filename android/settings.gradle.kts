@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "FrameCompanion"
 include(":app")
+include(":g2core")

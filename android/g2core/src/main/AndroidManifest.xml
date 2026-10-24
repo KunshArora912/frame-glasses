@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No permissions declared here on purpose: the host app declares BLUETOOTH_SCAN / BLUETOOTH_CONNECT
+     (API 31+) or BLUETOOTH / ACCESS_FINE_LOCATION (API 26-30) with its own flags. -->
+<manifest />

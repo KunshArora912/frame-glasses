@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.kunsh.g2core.ProtocolTest" tests="30" skipped="0" failures="0" errors="0" timestamp="2026-10-24T22:27:32.736Z" hostname="THEBEAST" time="0.077">
+  <properties/>
+  <testcase name="preludeFrameParses" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="assemblerPassthrough" classname="com.kunsh.g2core.ProtocolTest" time="0.003"/>
+  <testcase name="framingPropertyRoundTrip" classname="com.kunsh.g2core.ProtocolTest" time="0.015"/>
+  <testcase name="evenAiParseAndLimits" classname="com.kunsh.g2core.ProtocolTest" time="0.003"/>
+  <testcase name="notificationParseAndLimits" classname="com.kunsh.g2core.ProtocolTest" time="0.003"/>
+  <testcase name="moduleParse" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="parseRxAndAckMagic" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="notificationJsonIsValidAndCapped" classname="com.kunsh.g2core.ProtocolTest" time="0.002"/>
+  <testcase name="settingsRangeValidation" classname="com.kunsh.g2core.ProtocolTest" time="0.011"/>
+  <testcase name="g2BleNameAndSerialHelpers" classname="com.kunsh.g2core.ProtocolTest" time="0.007"/>
+  <testcase name="dashboardAcks" classname="com.kunsh.g2core.ProtocolTest" time="0.003"/>
+  <testcase name="micPacketLayout" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="iterFieldsClipsAndStops" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="writerReaderRoundTrip" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="authFrameMagicValidation" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="textHelpers" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="quicklistParsersAndPaging" classname="com.kunsh.g2core.ProtocolTest" time="0.005"/>
+  <testcase name="varintRoundTripAndNegatives" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="crcCheckValues" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="newsParsers" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="maxWriteLimitsChunk" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="sessionParsers" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="snapshotParse" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="hubStartupPlanShape" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="flagRule" classname="com.kunsh.g2core.ProtocolTest" time="0.0"/>
+  <testcase name="magicAllocatorWrapsNeverZero" classname="com.kunsh.g2core.ProtocolTest" time="0.001"/>
+  <testcase name="menuValidationAndSelection" classname="com.kunsh.g2core.ProtocolTest" time="0.002"/>
+  <testcase name="timeSyncValidationAndParse" classname="com.kunsh.g2core.ProtocolTest" time="0.002"/>
+  <testcase name="calendarCapsAndSequence" classname="com.kunsh.g2core.ProtocolTest" time="0.002"/>
+  <testcase name="appsParsersAndCommunityTp" classname="com.kunsh.g2core.ProtocolTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

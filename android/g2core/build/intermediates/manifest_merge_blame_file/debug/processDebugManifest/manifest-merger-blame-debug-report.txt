@@ -1,0 +1,11 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<!--
+3 No permissions declared here on purpose: the host app declares BLUETOOTH_SCAN / BLUETOOTH_CONNECT
+4     (API 31+) or BLUETOOTH / ACCESS_FINE_LOCATION (API 26-30) with its own flags.
+5-->
+6<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+7    package="com.kunsh.g2core" >
+8
+9    <uses-sdk android:minSdkVersion="26" />
+10
+11</manifest>
