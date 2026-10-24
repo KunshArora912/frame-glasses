@@ -33,7 +33,7 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 | 1 | Dashboard: time, date, battery | firmware + hub time sync (`hub.py` TimeFeed, hourly, acked) | verified live (owner: dashboard looks right; time sync acked); hub feed implemented, its hourly push hardware check pending (`python g2/hub.py --once time`) |
 | 2 | Dashboard: weather | hub weather feed (Open-Meteo opt-in) | **VERIFIED LIVE 2026-10-23 15:46**: 21° + sun icon drawn bottom-left of the native dashboard once the gateway held its EvenHub heartbeat while parked (gateway patch v2) |
 | 3 | Dashboard: calendar, news, tasks/quick notes | hub feeds (local .ics, RSS, thoughts.json) | implemented, hardware check pending (`--once calendar|news|tasks`) |
-| 4 | Menu: our entries + launch | hub menu push (Even built-ins + "Laptop" = the gateway's Launch id 10421, pushed after the gateway's own menu) + launcher starts parked | implemented, hardware check pending (`--once menu`); earlier: Launch from the glasses menu did nothing (2026-10-23 15:30), capture in progress |
+| 4 | Menu: our entries + launch | gateway foreground-launch (patch v3) + park/relaunch | **VERIFIED LIVE 2026-10-23 ~17:00**: picking the entry from the glasses menu opened the board (gateway log: foreground push of EvenHub while parked; treating as launch); owner used Notes and Assistant from it |
 | 5 | Even AI (voice assistant) | `g2/even_ai.py:EvenAI` (wake -> ENTER -> 2 s heartbeat -> mic -> local STT -> ASK/ANALYSE/REPLY -> EXIT) + local Whisper + brain; hook: `self.even_ai = even_ai.attach(self)` once the hub's Glasses is up; `python g2/even_ai.py --simulate "..."` prints every frame | **implemented, hardware check pending** (21 tests on fakes; verify: wake frame lens/bytes, mic streams after ENTER without the EvenHub toggle, end flag `6:1`, EXIT on double tap) |
 | 6 | Teleprompter | `g2/native_apps.py` hosts the firmware Teleprompt (menu launch: FILE_LIST / FILE_SELECT / START / PAGE_DATA / heartbeat) from `g2/data/teleprompter/*.txt`; hidden board fallback `apps/teleprompter.py` | implemented, hardware check pending (all SID 0x06 frames DECODED) |
 | 7 | Translate | `g2/native_apps.py` hosts the firmware Translate (OPEN / RESULT / heartbeat / LANG_SWITCH) with local STT + argostranslate when installed, captions only otherwise; hidden board fallback `apps/translate.py` | implemented, hardware check pending (all SID 0x05 frames DECODED) |
@@ -48,5 +48,6 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 
 ## Verification log
 
+- 2026-10-23 17:00-20:11: Launch from the glasses menu opens the board; hub ran 3 h: calendar, quick list (tasks) and hourly time sync all acked every cycle.
 - 2026-10-23 15:46: native weather card visible on the dashboard (21°, sun). Precondition: no EvenHub heartbeat while parked.
 - 2026-10-23: gateway connect, display, taps, mic LC3 decode, speech (tone test), launcher apps with spoken input, park/relaunch via API, native settings READ, dashboard init / units / time sync / weather all acked (flag 0).
