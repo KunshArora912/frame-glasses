@@ -11,7 +11,7 @@ glasses  <-BLE->  gateway (vendor, patched)  <-HTTP/WS->  g2/run.py process
                                                    |-- launcher + apps        (EvenHub page: our screens)
                                                    |-- hub (g2/hub.py)        (native dashboard feed, menu, keep-alive)
                                                    |-- native Glasses         (g2/native via POST /api/raw + raw events)
-phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, phone notifications
+phone (android/ companion) <-WebSocket g2/phone_link.py (127.0.0.1:8768 via adb reverse)-> laptop: GPS, phone notifications, display settings
 ```
 
 - One native `Glasses` instance per process, owned by `g2/hub.py:Hub`, exposed to
@@ -40,8 +40,8 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 | 8 | Conversate / live transcription + summary | `NativeApps.conversate_open`: live transcript on the firmware Translate surface (same-language pair) + brain summary pushed and saved; the real Conversate channel (menu id 11 / SID 0x0B) is not decoded; hidden board fallback `apps/conversate.py` | implemented, hardware check pending |
 | 9 | QuickNote / Reminders | Notes app + hub quick-list push (TasksFeed) | implemented, hardware check pending (`--once tasks`; Notes app live) |
 | 10 | Settings: brightness, height, distance, head-up angle, silent, wear, timeout | laptop CLI `g2/settings_cli.py show|set|keys` (`--dry-run` prints frames) over native settings; hidden board fallback `apps/settings.py` | implemented, hardware check pending (height/distance SET are DECODED) |
-| 11 | Notifications from the phone | Android companion notification listener -> relay -> native notification frames | wave 2 (needs gateway 7401 char) |
-| 12 | Navigate | Android GPS -> relay -> laptop; Valhalla routing (nav/); native navigation frames | wave 2 |
+| 11 | Notifications from the phone | Android companion `G2NotificationListener` -> WebSocket (adb reverse, 127.0.0.1:8768) -> `g2/phone_link.py` (filter, dedupe, 1 card / 3 s with coalescing, log to `g2/logs/notifications.jsonl`) -> `hub.glasses.notify` under `hub.lock`; see `g2/PHONE.md`. Also a Display card on the phone (height / distance / brightness / auto, synced both ways via `read_settings` / `apply_setting`) | **implemented 2026-10-24**: 24 tests on fakes. Verified on the real phone: listener -> WebSocket -> filter -> log; display sets from the phone's sliders reached the server; the live stack read the real glasses' settings and sent them to the phone. Hardware check pending: the card itself on the glasses (hub-form EvenFile transfer is DECODED/UNTESTED) and a set applied to the real glasses |
+| 12 | Navigate | Android GPS (LocationManager, 5 s, inside the foreground service) -> `g2/phone_link.py` (`PhoneLink.location`, 512-fix ring, `on_location(cb)`, `latest()` as a nav position source) -> Valhalla routing (nav/); native navigation frames | GPS feed implemented 2026-10-24 (tests on fakes; the phone registers GPS + network updates under the location FGS type; no live fix yet because Location was off on the phone); not yet wired to nav/guidance or the native Navigate frames |
 | 13 | Head movements (IMU) for apps | gateway imuControl + events; head-up handled by firmware settings | wave 2 |
 | 14 | Health (R1 ring), Stocks | no ring here; stocks need a feed | later / optional |
 | 15 | Firmware update without the app | community flasher (g2flash) | later, on request |

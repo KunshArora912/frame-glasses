@@ -737,7 +737,7 @@ index 25e2ccd..2dd8de2 100644
  
  
 diff --git a/mentraos/g2/client.py b/mentraos/g2/client.py
-index b4027ab..6c1ae1a 100644
+index b4027ab..c8fac33 100644
 --- a/mentraos/g2/client.py
 +++ b/mentraos/g2/client.py
 @@ -12,6 +12,7 @@ import inspect
@@ -770,7 +770,7 @@ index b4027ab..6c1ae1a 100644
  from .protocol import calendar, dashboard, dev_settings, even_ai, even_hub, g2_setting, menu, onboarding
  from .render import decode_base64_image, render_image_tiles
  from .scan import G2DiscoveredDevice, G2DiscoveredPair, discover_g2_pair
-@@ -83,6 +92,60 @@ class G2ClientConfig:
+@@ -83,6 +92,61 @@ class G2ClientConfig:
      image_dither: bool = False
      debug_raw_events: bool = False
      unpair_on_startup: bool = False
@@ -806,6 +806,7 @@ index b4027ab..6c1ae1a 100644
 +# After such a launch the firmware finds no page and emits OS event 7 (system_exit) within
 +# the same second; ignore exits inside this window so the page we are creating survives.
 +FOREGROUND_LAUNCH_EXIT_GRACE_SEC = 1.5
++PARK_FOREGROUND_ECHO_SEC = 3.0
 +RAW_FRAME_HEADER_BYTE = 0xAA
 +RAW_FRAME_MIN_LENGTH = 8
 +
@@ -831,16 +832,17 @@ index b4027ab..6c1ae1a 100644
  
  
  class G2Client:
-@@ -129,6 +192,8 @@ class G2Client:
+@@ -129,6 +193,9 @@ class G2Client:
          self._image_session_counter = 0
          self._last_audio_frame: Optional[bytes] = None
          self._launch_menu_app_id = menu.package_name_to_app_id(LAUNCH_MENU_PACKAGE_NAME)
 +        # loop.time() of the last parked->launched transition, for the exit grace window.
 +        self._last_launch_monotonic: Optional[float] = None
++        self._last_park_monotonic: Optional[float] = None
  
          self._heartbeat_task: Optional[asyncio.Task[None]] = None
          self._dev_settings_heartbeat_task: Optional[asyncio.Task[None]] = None
-@@ -205,8 +270,26 @@ class G2Client:
+@@ -205,8 +272,26 @@ class G2Client:
          self._state.display_surface = DISPLAY_SURFACE_APP
          return True
  
@@ -867,7 +869,7 @@ index b4027ab..6c1ae1a 100644
              self._mark_dashboard_surface(gesture)
          elif gesture == "foreground_enter":
              self._mark_app_surface()
-@@ -235,6 +318,21 @@ class G2Client:
+@@ -235,6 +320,21 @@ class G2Client:
      async def display(self, request: Mapping[str, Any], remember: bool = True) -> Dict[str, Any]:
          """設計どおりに display payload を fast text または layout へ振り分ける。"""
  
@@ -889,7 +891,7 @@ index b4027ab..6c1ae1a 100644
          if request.get("clear"):
              await self.clear_display()
              return {"accepted": True, "mode": "clear", "queued": False}
-@@ -280,6 +378,10 @@ class G2Client:
+@@ -280,6 +380,10 @@ class G2Client:
          await self._emit_status_snapshot()
          if not self._state.ready:
              return
@@ -900,7 +902,7 @@ index b4027ab..6c1ae1a 100644
          await self._ensure_startup_page(" ")
          await self._send_even_hub_command(
              even_hub.audio_control_message(enable=enabled, magic_random=self._send_manager.next_magic_random())
-@@ -310,6 +412,147 @@ class G2Client:
+@@ -310,6 +414,148 @@ class G2Client:
          self._state.right.mac_address = ""
          await self._emit_status_snapshot()
  
@@ -1022,6 +1024,7 @@ index b4027ab..6c1ae1a 100644
 +        self._state.mic_enabled = False
 +        self._state.display_surface = DISPLAY_SURFACE_DASHBOARD
 +        self._state.parked = True
++        self._last_park_monotonic = asyncio.get_running_loop().time()
 +        if not already_parked:
 +            LOGGER.info(
 +                "G2 page parked (%s); native dashboard left visible; EvenHub heartbeat %s",
@@ -1048,7 +1051,7 @@ index b4027ab..6c1ae1a 100644
      async def _unpair_known_devices_before_connect(self) -> None:
          """起動時に既知アドレスへ best-effort の unpair を掛け、その起動では再スキャンへ戻す。"""
  
-@@ -462,23 +705,27 @@ class G2Client:
+@@ -462,23 +708,27 @@ class G2Client:
              await asyncio.sleep(control_gap_sec)
              await left_client.start_notify(
                  CHAR_NOTIFY,
@@ -1080,7 +1083,7 @@ index b4027ab..6c1ae1a 100644
          except Exception:
              for client in (left_client, right_client):
                  with suppress(Exception):
-@@ -519,6 +766,7 @@ class G2Client:
+@@ -519,6 +769,7 @@ class G2Client:
          self._state.left.authenticated = False
          self._state.right.authenticated = False
          self._state.page.reset_runtime_flags()
@@ -1088,7 +1091,7 @@ index b4027ab..6c1ae1a 100644
          self._heartbeat_counter = 0
  
          await self._send_dev_settings_command(
-@@ -590,24 +838,40 @@ class G2Client:
+@@ -590,24 +841,40 @@ class G2Client:
          if self._state.target_mic_enabled:
              await self.set_mic_enabled(True)
  
@@ -1132,7 +1135,7 @@ index b4027ab..6c1ae1a 100644
  
      async def _disconnect_clients(self) -> None:
          """現在保持している BleakClient をすべて切断する。"""
-@@ -677,6 +941,7 @@ class G2Client:
+@@ -677,6 +944,7 @@ class G2Client:
          await self._stop_background_tasks()
          await self._disconnect_clients()
          self._state.page.reset_runtime_flags()
@@ -1140,7 +1143,7 @@ index b4027ab..6c1ae1a 100644
          self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
          self._state.mic_enabled = False
          self._state.left.authenticated = False
-@@ -817,13 +1082,15 @@ class G2Client:
+@@ -817,13 +1085,15 @@ class G2Client:
              await asyncio.sleep(control_gap_sec)
              await client.start_notify(
                  CHAR_NOTIFY,
@@ -1158,7 +1161,7 @@ index b4027ab..6c1ae1a 100644
          except Exception:
              with suppress(Exception):
                  await client.disconnect()
-@@ -901,6 +1168,7 @@ class G2Client:
+@@ -901,6 +1171,7 @@ class G2Client:
          await asyncio.sleep(0.2)
          await self._send_launch_menu()
          await asyncio.sleep(0.2)
@@ -1166,7 +1169,7 @@ index b4027ab..6c1ae1a 100644
          await self._ensure_startup_page(" ")
          await asyncio.sleep(0.2)
          await self.request_device_info()
-@@ -943,6 +1211,12 @@ class G2Client:
+@@ -943,6 +1214,12 @@ class G2Client:
              if not self._is_side_connected("right"):
                  next_deadline = loop.time() + interval
                  continue
@@ -1179,7 +1182,7 @@ index b4027ab..6c1ae1a 100644
              await self._send_even_hub_command(
                  even_hub.heartbeat_message(self._send_manager.next_magic_random()),
                  urgent=True,
-@@ -1609,6 +1883,8 @@ class G2Client:
+@@ -1609,6 +1886,8 @@ class G2Client:
          left: bool,
          right: bool,
          urgent: bool = False,
@@ -1188,7 +1191,7 @@ index b4027ab..6c1ae1a 100644
      ) -> None:
          """packet 群を side 指定どおりに送る。
  
-@@ -1637,7 +1913,7 @@ class G2Client:
+@@ -1637,7 +1916,7 @@ class G2Client:
                              missing_sides.append("right")
                          else:
                              writes.append(
@@ -1197,7 +1200,7 @@ index b4027ab..6c1ae1a 100644
                              )
                      elif right:
                          missing_sides.append("right")
-@@ -1650,12 +1926,12 @@ class G2Client:
+@@ -1650,12 +1929,12 @@ class G2Client:
                              missing_sides.append("left")
                          else:
                              writes.append(
@@ -1212,7 +1215,7 @@ index b4027ab..6c1ae1a 100644
                      if writes:
                          results = await asyncio.gather(
                              *(write for _, write in writes),
-@@ -1691,22 +1967,48 @@ class G2Client:
+@@ -1691,22 +1970,48 @@ class G2Client:
      def _make_notify_callback(
          self,
          source_key: str,
@@ -1264,7 +1267,7 @@ index b4027ab..6c1ae1a 100644
      def _make_disconnect_callback(
          self,
          side: str,
-@@ -1791,6 +2093,7 @@ class G2Client:
+@@ -1791,6 +2096,7 @@ class G2Client:
                  self._state.right.connected = False
                  self._state.right.authenticated = False
                  self._state.page.reset_runtime_flags()
@@ -1272,7 +1275,7 @@ index b4027ab..6c1ae1a 100644
                  self._state.mic_enabled = False
                  self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
  
-@@ -1827,6 +2130,7 @@ class G2Client:
+@@ -1827,6 +2133,7 @@ class G2Client:
              self._connection_generation += 1
              self._state.ready = False
              self._state.page.reset_runtime_flags()
@@ -1280,7 +1283,7 @@ index b4027ab..6c1ae1a 100644
              self._state.display_surface = DISPLAY_SURFACE_UNKNOWN
              self._state.mic_enabled = False
              self._state.left.connected = False
-@@ -1851,13 +2155,34 @@ class G2Client:
+@@ -1851,13 +2158,34 @@ class G2Client:
          self,
          raw_data: bytes,
          source_key: str,
@@ -1318,7 +1321,7 @@ index b4027ab..6c1ae1a 100644
              return
          side = "left" if source_key == "L" else "right"
          if side_generation != self._side_generations.get(side):
-@@ -1865,12 +2190,6 @@ class G2Client:
+@@ -1865,12 +2193,6 @@ class G2Client:
          if side in self._reconnecting_sides:
              return
  
@@ -1331,7 +1334,7 @@ index b4027ab..6c1ae1a 100644
          if is_audio:
              await self._handle_audio_data(raw_data, source_key)
              return
-@@ -1886,9 +2205,18 @@ class G2Client:
+@@ -1886,9 +2208,18 @@ class G2Client:
              await self._handle_dev_settings_payload(payload, source_key)
          elif service_id == int(ServiceID.G2_SETTING):
              await self._handle_g2_setting_payload(payload)
@@ -1350,7 +1353,7 @@ index b4027ab..6c1ae1a 100644
      async def _handle_even_hub_payload(self, payload: bytes) -> None:
          """EvenHub 応答を state とイベントへ反映する。"""
  
-@@ -1899,7 +2227,7 @@ class G2Client:
+@@ -1899,7 +2230,7 @@ class G2Client:
              await self._emit(event["kind"], event["data"])
  
          system_exit_surface_changed = False
@@ -1359,7 +1362,7 @@ index b4027ab..6c1ae1a 100644
              system_exit_surface_changed = self._mark_dashboard_surface(
                  parsed.get("system_exit_reason") or "system_exit"
              )
-@@ -1910,9 +2238,15 @@ class G2Client:
+@@ -1910,9 +2241,15 @@ class G2Client:
              if menu_app_id == self._launch_menu_app_id:
                  await self._rebuild_display_from_launch_menu()
  
@@ -1376,7 +1379,7 @@ index b4027ab..6c1ae1a 100644
  
          if parsed.get("system_exit") and ENABLE_SYSTEM_EXIT_RUNTIME_RESET:
              runtime_reset_reason = parsed.get("system_exit_reason") or "system_exit"
-@@ -1929,6 +2263,25 @@ class G2Client:
+@@ -1929,6 +2266,31 @@ class G2Client:
          elif system_exit_surface_changed:
              await self._emit_status_snapshot()
  
@@ -1396,13 +1399,19 @@ index b4027ab..6c1ae1a 100644
 +        app_id = parsed.get("app_id")
 +        LOGGER.debug("G2 foreground app: %s", app_id)
 +        if app_id == FOREGROUND_APP_EVEN_HUB and self._state.parked:
++            last = self._last_park_monotonic
++            if last is not None and asyncio.get_running_loop().time() - last < PARK_FOREGROUND_ECHO_SEC:
++                # Shutting our page down makes the firmware report EvenHub in the foreground
++                # once more before the dashboard takes over; that echo is not the user launching us.
++                LOGGER.info("G2 EvenHub foreground within %.0fs of parking ignored (shutdown echo)", PARK_FOREGROUND_ECHO_SEC)
++                return
 +            LOGGER.info("G2 foreground push of EvenHub while parked; treating as launch")
 +            await self._rebuild_display_from_launch_menu(app_id=app_id, via="foreground")
 +
      async def _handle_dev_settings_payload(self, payload: bytes, source_key: str) -> None:
          """DevSettings 応答を state とイベントへ反映する。"""
  
-@@ -2085,4 +2438,4 @@ class G2Client:
+@@ -2085,4 +2447,4 @@ class G2Client:
          await self._emit_status_snapshot()
  
  
@@ -1674,10 +1683,10 @@ index 0000000..2f49e4d
 +    unittest.main()
 diff --git a/tests/test_park_state.py b/tests/test_park_state.py
 new file mode 100644
-index 0000000..3a71a66
+index 0000000..47b971d
 --- /dev/null
 +++ b/tests/test_park_state.py
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,526 @@
 +from __future__ import annotations
 +
 +import asyncio
@@ -1970,6 +1979,7 @@ index 0000000..3a71a66
 +        await h.client._handle_even_hub_payload(page_shutdown_payload(9))
 +        self.assertTrue(h.state.parked)
 +        self.assertTrue(h.client._heartbeat_paused())
++        h.client._last_park_monotonic -= 10.0  # the user picks the entry later, not as a shutdown echo
 +        h.events.clear()
 +        h.sent.clear()
 +
@@ -1993,6 +2003,7 @@ index 0000000..3a71a66
 +    async def test_system_exit_after_grace_window_is_handled_normally(self) -> None:
 +        h = Harness(park_on_exit=True)
 +        await h.client._handle_even_hub_payload(page_shutdown_payload(9))
++        h.client._last_park_monotonic -= 10.0
 +        await self._notify(h, self.FG_EVEN_HUB)
 +        self.assertFalse(h.state.parked)
 +        h.client._last_launch_monotonic -= 5.0  # pretend the launch was 5 s ago
@@ -2001,6 +2012,14 @@ index 0000000..3a71a66
 +
 +        self.assertEqual(h.state.display_surface, DISPLAY_SURFACE_DASHBOARD)
 +        self.assertFalse(h.state.parked, "system_exit never parks; only page_shutdown does")
++
++    async def test_foreground_echo_right_after_parking_is_ignored(self) -> None:
++        h = Harness(park_on_exit=True)
++        await h.client._handle_even_hub_payload(page_shutdown_payload(9))
++        h.sent.clear()
++        await self._notify(h, self.FG_EVEN_HUB)        # firmware echo while the dashboard takes over
++        self.assertTrue(h.state.parked)
++        self.assertEqual(h.sent_cmds(), [])
 +
 +    async def test_foreground_push_while_not_parked_is_ignored(self) -> None:
 +        h = Harness(park_on_exit=True)

@@ -140,6 +140,11 @@ class AppContext:
         return None if hub is None else hub.glasses
 
     @property
+    def phone(self):  # --- phone link
+        """The phone link (g2/phone_link.py PhoneLink: .location, .on_location, .recent), or None."""
+        return getattr(self._l, "phone", None)
+
+    @property
     def clock(self) -> Callable[[], float]:
         return self._l.clock
 

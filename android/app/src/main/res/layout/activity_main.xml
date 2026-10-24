@@ -20,6 +20,112 @@
             android:textColor="@color/text"
             android:paddingBottom="12dp" />
 
+        <!-- G2 laptop link card: notifications + GPS to g2/phone_link.py; never touches Bluetooth -->
+        <LinearLayout style="@style/Card">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="G2 laptop link" android:textStyle="bold" android:textColor="@color/text" />
+                    <TextView android:id="@+id/g2Text" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="off" android:textColor="@color/muted" android:textSize="13sp" />
+                </LinearLayout>
+                <Button android:id="@+id/g2Btn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Connect" />
+            </LinearLayout>
+            <EditText
+                android:id="@+id/g2Url"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="ws://localhost:8768/phone"
+                android:inputType="textUri"
+                android:textColor="@color/text"
+                android:textColorHint="@color/muted"
+                android:importantForAutofill="no" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView android:id="@+id/g2AccessText" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="" android:textColor="@color/text" android:textSize="13sp" />
+                <Button android:id="@+id/g2AccessBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Notification access" android:textSize="12sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/g2NotifText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Last notification: none yet" android:textColor="@color/muted" android:textSize="13sp" />
+            <TextView android:id="@+id/g2FixText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Last GPS fix: none yet" android:textColor="@color/muted" android:textSize="13sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="For the Even G2: the laptop holds the glasses\' Bluetooth; this phone only forwards its notifications and GPS. Over USB the laptop runs adb reverse tcp:8768 tcp:8768. While this link is on, the Frame Connect below is refused."
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- G2 Display card (visible while the G2 laptop link is on): synced both ways through the laptop -->
+        <LinearLayout style="@style/Card" android:id="@+id/displayCard" android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Display" android:textStyle="bold" android:textColor="@color/text" />
+            <TextView android:id="@+id/glassesBattery" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Glasses: waiting for the laptop" android:textColor="@color/muted" android:textSize="13sp" android:paddingBottom="8dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <!-- Display Height: vertical slider (a rotated SeekBar in a narrow frame) -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:paddingEnd="12dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Display\nHeight" android:gravity="center" android:textColor="@color/text" android:textSize="13sp" />
+                    <FrameLayout
+                        android:layout_width="56dp"
+                        android:layout_height="200dp"
+                        android:clipChildren="false">
+                        <SeekBar
+                            android:id="@+id/heightBar"
+                            android:layout_width="200dp"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:rotation="270"
+                            android:max="20" />
+                    </FrameLayout>
+                    <TextView android:id="@+id/heightVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-" android:textColor="@color/text" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Display Distance" android:textColor="@color/text" android:textSize="13sp" />
+                        <TextView android:id="@+id/distanceVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-" android:textColor="@color/text" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/nearBtn" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Near" android:textSize="12sp" />
+                        <Button android:id="@+id/midBtn" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Mid" android:textSize="12sp" />
+                        <Button android:id="@+id/farBtn" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Far" android:textSize="12sp" />
+                    </LinearLayout>
+                    <SeekBar android:id="@+id/distanceBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="20" android:paddingTop="8dp" android:paddingBottom="16dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brightness" android:textColor="@color/text" android:textSize="13sp" />
+                        <TextView android:id="@+id/brightVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-" android:textColor="@color/text" android:paddingEnd="8dp" />
+                        <androidx.appcompat.widget.SwitchCompat android:id="@+id/autoSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Auto" android:textColor="@color/text" />
+                    </LinearLayout>
+                    <SeekBar android:id="@+id/brightBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="50" android:paddingTop="8dp" />
+                </LinearLayout>
+            </LinearLayout>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:text="Read from the glasses through the laptop every 10 s and after each change; changes made on the laptop show up here too."
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <!-- link card -->
         <LinearLayout style="@style/Card">
             <LinearLayout

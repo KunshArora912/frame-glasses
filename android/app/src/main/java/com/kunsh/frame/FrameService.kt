@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -12,6 +14,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import java.text.SimpleDateFormat
@@ -35,6 +38,8 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         const val PREFS = "frame"
         const val KEY_ADDR = "frame_addr"
         const val KEY_RELAY = "relay_url"
+        const val KEY_G2_URL = "g2_url"          // G2 laptop link (g2/phone_link.py)
+        const val KEY_G2_ON = "g2_on"
         const val LOG_MAX = 300
         val APPS = listOf("assistant", "shell", "todo", "navigate", "showcase")
     }
@@ -63,6 +68,10 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
     var savedAddress: String?
         get() = prefs.getString(KEY_ADDR, null)
         set(v) { prefs.edit().putString(KEY_ADDR, v).apply() }
+    var savedG2Url: String
+        get() = prefs.getString(KEY_G2_URL, G2Link.DEFAULT_URL) ?: G2Link.DEFAULT_URL
+        set(v) { prefs.edit().putString(KEY_G2_URL, v).apply() }
+    private var g2Loc: G2Location? = null
     var savedRelayUrl: String
         get() = prefs.getString(KEY_RELAY, "ws://localhost:8765/phone") ?: ""
         set(v) { prefs.edit().putString(KEY_RELAY, v).apply() }
@@ -71,6 +80,8 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         super.onCreate()
         ble = FrameBle(this, this)
         relay = Relay(this)
+        G2Link.log = { addLog(it) }
+        G2Link.onIntervalChanged = { if (g2Loc != null) startG2Location() }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Frame link", NotificationManager.IMPORTANCE_LOW).apply {
@@ -82,6 +93,9 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
+        g2Loc?.stop(); g2Loc = null           // the G2 socket itself may live on in the notification listener
+        if (G2Link.log != null) G2Link.log = null
+        G2Link.onIntervalChanged = null
         relay.unlink()
         ble.disconnect()
         super.onDestroy()
@@ -89,6 +103,10 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
 
     // ------------------------------------------------------------- actions
     fun connect(forceScan: Boolean = false) {
+        if (G2Link.wanted) {                  // G2 mode: the laptop holds the glasses' link, the phone never connects
+            addLog("G2 laptop link is on: Frame Bluetooth connect refused (Disconnect the G2 link first)")
+            return
+        }
         wantConnected = true
         goForeground("Connecting to Frame")
         ble.connect(if (forceScan) null else savedAddress)
@@ -98,7 +116,51 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         wantConnected = false
         main.removeCallbacks(reconnect)
         ble.disconnect()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        if (G2Link.wanted) goForeground("G2 laptop link") else stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    // ------------------------------------------------------- G2 laptop link
+    /** Forward phone notifications + GPS to g2/phone_link.py. Never touches Bluetooth. */
+    fun startG2(url: String) {
+        if (wantConnected || ble.connected) {
+            addLog("G2 mode: closing the Frame Bluetooth link")
+            wantConnected = false
+            main.removeCallbacks(reconnect); main.removeCallbacks(reconnectCheck)
+            ble.disconnect()
+        }
+        val u = url.trim().ifBlank { G2Link.DEFAULT_URL }
+        savedG2Url = u
+        prefs.edit().putBoolean(KEY_G2_ON, true).apply()
+        G2Link.start(u)
+        goForeground("G2 laptop link")
+        startG2Location()
+        if (!G2NotificationListener.hasAccess(this)) addLog("G2: notification access not granted; only GPS is forwarded")
+        addLog("G2 laptop link on: $u")
+    }
+
+    /** The app was opened with the G2 link left on (e.g. after a reboot): bring back socket + GPS + foreground. */
+    fun resumeG2IfWanted() {
+        if (prefs.getBoolean(KEY_G2_ON, false) && g2Loc == null) startG2(savedG2Url)
+    }
+
+    fun stopG2() {
+        prefs.edit().putBoolean(KEY_G2_ON, false).apply()
+        G2Link.stop()
+        g2Loc?.stop(); g2Loc = null
+        G2Link.setFixText("off")
+        if (!wantConnected && !ble.connected) stopForeground(STOP_FOREGROUND_REMOVE) else goForeground("Frame link")
+        addLog("G2 laptop link off")
+    }
+
+    /** (Re)start GPS for the G2 link; called again after a permission grant or an interval change. */
+    fun startG2Location() {
+        if (!G2Link.wanted) return
+        val loc = g2Loc ?: G2Location(this) { G2Link.sendLoc(it) }
+        g2Loc = loc
+        if (loc.hasPermission()) goForeground("G2 laptop link")   // adds the location type to the service
+        val msg = loc.start(G2Link.locIntervalMs)
+        addLog("G2: $msg")
+        if (!msg.startsWith("GPS")) G2Link.setFixText(msg)
     }
 
     // The glasses sleep, reboot after a firmware update, or walk out of range;
@@ -206,6 +268,7 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
 
     // ------------------------------------------------------------- plumbing
     private fun addLog(msg: String) {
+        android.util.Log.i("FrameService", msg)
         logLines.addLast("[${clock.format(Date())}] $msg")
         while (logLines.size > LOG_MAX) logLines.removeFirst()
         _log.value = logLines.toList()
@@ -224,10 +287,22 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
             .build()
     }
 
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
     private fun goForeground(text: String) {
         val n = notification(text)
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        else startForeground(NOTIF_ID, n)
+        if (Build.VERSION.SDK_INT < 29) { startForeground(NOTIF_ID, n); return }
+        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        if (G2Link.wanted && hasLocationPermission()) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        try {
+            startForeground(NOTIF_ID, n, type)
+        } catch (e: Exception) {              // SecurityException / ForegroundServiceStartNotAllowedException
+            addLog("foreground (type $type) refused: ${e.message}; retrying without location")
+            try { startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) }
+            catch (e2: Exception) { addLog("foreground refused: ${e2.message}") }
+        }
     }
 
     private fun updateNotification(text: String) {

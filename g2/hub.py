@@ -50,6 +50,7 @@ from g2.native import apps as native_apps, dashboard, even_ai, pb, session  # no
 from g2.native import menu as menu_mod  # noqa: E402
 from g2.native.framing import ParsedFrame  # noqa: E402
 from g2.native.transport import RIGHT, Glasses  # noqa: E402
+from g2.phone_link import PhoneConfig  # noqa: E402  --- phone link
 
 log = logging.getLogger("g2.hub")
 
@@ -155,6 +156,7 @@ class HubConfig:
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
     news: NewsConfig = field(default_factory=NewsConfig)
     tasks: TasksConfig = field(default_factory=TasksConfig)
+    phone: PhoneConfig = field(default_factory=PhoneConfig)   # --- phone link (g2/phone_link.py)
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "HubConfig":
@@ -857,6 +859,7 @@ class Hub:
         self._native_app_callbacks: list[Callable[[NativeAppEvent], Any]] = []
         self.native_events: list[NativeAppEvent] = []
         self._started = False
+        self.phone = None                             # --- phone link: g2/phone_link.py PhoneLink (set by attach)
         for name in FEED_NAMES:
             if self._enabled(name):
                 try:

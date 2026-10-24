@@ -22,6 +22,26 @@ Package `com.kunsh.frame`, minSdk 26, targetSdk 36. Files:
 (OkHttp WebSocket, same JSON protocol as `phone/app.js`), `FrameService.kt`
 (foreground service, status parsing, notification), `MainActivity.kt`.
 
+## G2 laptop link (Even G2)
+
+For the Even G2 the laptop holds the glasses' Bluetooth link and this app never touches it. While
+the G2 link is on, Frame Connect is refused, and turning the link on closes any Frame link. The
+app forwards phone notifications and GPS to `g2/phone_link.py` and shows a **Display** card
+(Display Height, Display Distance Near / Mid / Far + fine slider, brightness + Auto, glasses
+battery). The card is synced both ways through the laptop. See `g2/PHONE.md`.
+
+- **Laptop:** `python g2/run.py` (the phone link listens on 127.0.0.1:8768), then
+  `adb reverse tcp:8768 tcp:8768` over USB (repeat after a replug or adb restart).
+- **Phone:** in **G2 laptop link**, keep the URL `ws://localhost:8768/phone` and tap Connect
+  (allow location + notifications). Then tap **Notification access** and enable the app. Location
+  must be on in Android's settings for GPS fixes.
+- The link reconnects on its own (2 s .. 30 s backoff). When the system rebinds the notification
+  listener (reboot, update) it resumes notification forwarding. Opening the app brings back GPS
+  and the foreground service (types connectedDevice + location).
+- Never forwarded: this app, `com.even.sg`, ongoing notifications, group summaries.
+- Files: `G2Link.kt` (WebSocket + state), `G2NotificationListener.kt`, `G2Location.kt`
+  (LocationManager), `DisplayCard.kt`; wiring in `FrameService.kt` / `MainActivity.kt`.
+
 ## Updating the glasses while the phone holds the bond
 
 No re-pairing. The laptop goes through the phone for everything except the

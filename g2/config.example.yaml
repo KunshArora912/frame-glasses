@@ -60,3 +60,23 @@ tasks:
   repush_s: 900                    # full re-push even when unchanged
   max_items: 20                    # one quicklist packet
   path: null                       # thoughts.json; null = the notes default (repo root)
+
+phone:                             # g2/phone_link.py: the Android companion forwards notifications + GPS (g2/PHONE.md)
+  enabled: true                    # started with the hub (launcher --no-phone turns it off)
+  host: 127.0.0.1                  # loopback only; the phone connects through `adb reverse tcp:8768 tcp:8768`
+  port: 8768                       # ws://127.0.0.1:8768/phone, status at GET /phone/status
+  push: true                       # false = log to g2/logs/notifications.jsonl only, never touch the glasses
+  form: hub                        # Glasses.notify form: hub (acked EvenFile transfer) | community (fire and forget)
+  allow: []                        # packages to forward; empty = every app not denied (also sent to the phone)
+  deny: []                         # packages never forwarded (the companion itself and com.even.sg always are)
+  drop_ongoing: true               # media players, navigation, downloads
+  drop_silent: true                # notifications posted on a low-importance channel
+  dedupe_s: 10                     # same key + same text within this window is a duplicate
+  min_interval_s: 3                # at most one card per this many seconds; extras coalesce into one card
+  max_coalesce: 5                  # lines in a coalesced "N notifications" card
+  app_identifier: null             # card app_identifier; null = the phone app's package
+  loc_interval_s: 5                # GPS interval asked of the phone
+  ring_size: 512                   # GPS fixes kept in memory for navigation
+  display_poll_s: 10               # glasses display settings re-read and sent to the phone this often
+  set_coalesce_s: 0.3              # phone slider drags: applied at most this often, last value wins
+  log_path: g2/logs/notifications.jsonl

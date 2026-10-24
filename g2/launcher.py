@@ -246,7 +246,7 @@ class Launcher:
             # Even's rule: double tap closes what is open. Inside an app that
             # means back to our home; on our home it means leave the board
             # entirely and give the screen back to Even's dashboard.
-            if self.screen == "home" and self.start_parked:
+            if self.start_parked:              # anywhere on the board: straight back to Even's dashboard
                 await self.leave_current()
                 self._last_park = 0.0
                 await self.park()
