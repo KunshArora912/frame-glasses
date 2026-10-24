@@ -1,1 +1,0 @@
-com.kunsh.g2core
