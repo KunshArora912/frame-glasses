@@ -45,6 +45,7 @@ phone (android/ companion) <-WebSocket relay (relay_server.py)-> laptop: GPS, ph
 | 13 | Head movements (IMU) for apps | gateway imuControl + events; head-up handled by firmware settings | wave 2 |
 | 14 | Health (R1 ring), Stocks | no ring here; stocks need a feed | later / optional |
 | 15 | Firmware update without the app | community flasher (g2flash) | later, on request |
+| 16 | Terminal Mode (Claude Code / console sessions on the glasses, approve/reply) | `g2/terminal.py` hub (transcript watcher + Claude Code hooks via `g2/terminal_hook.py` + ConPTY/pyte managed sessions, 127.0.0.1:8767) and the Terminal app (`g2/apps/terminal.py`); see `g2/TERMINAL.md` | **implemented, hardware check pending** (26 tests on fakes; verify on the glasses: list/session screens, hold = approve, swipe up = deny, voice reply; verify with a live Claude Code that a PermissionRequest decision from the glasses is honoured) |
 
 ## Verification log
 

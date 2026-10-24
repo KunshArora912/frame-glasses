@@ -157,6 +157,7 @@ in the hub; scripts go in `g2/data/teleprompter/`.
 - `g2/native/`: the firmware's native protocol (dashboard widgets, settings, menu, notifications, Even AI) over the gateway's `/api/raw`. See `g2/native/README.md` for what is verified and what is not.
 - `g2/vendor/men-g2-ble-gateway/`: the Bluetooth gateway itself (third party, MIT), with our patch in `g2/patches/`.
 - `g2/docs/`: protocol research, positioning rules, and the Even-app feature catalogue.
+- `g2/terminal.py` + `g2/apps/terminal.py`: Terminal Mode (Claude Code on the glasses: hooks, approvals, managed consoles). See `g2/TERMINAL.md`.
 
 ## 8. When something is off
 
