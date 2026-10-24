@@ -19,7 +19,10 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.RadioGroup
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -52,6 +55,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var g2NotifText: TextView
     private lateinit var g2FixText: TextView
     private var pendingG2 = false
+    private var pendingPhoneHub = false
+    private lateinit var hubMode: RadioGroup
+    private lateinit var phoneHubText: TextView
+    private lateinit var phoneHubArms: TextView
+    private lateinit var phoneHubBtn: Button
+    private lateinit var keyInput: EditText
+    private lateinit var keyText: TextView
+    private lateinit var micText: TextView
+    private lateinit var calText: TextView
+    private lateinit var ideasCountText: TextView
 
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -60,6 +73,7 @@ class MainActivity : AppCompatActivity() {
             observe()
             if (pendingConnect) { pendingConnect = false; svc?.connect() }
             if (pendingG2) { pendingG2 = false; svc?.startG2(g2Url.text.toString()) } else svc?.resumeG2IfWanted()
+            if (pendingPhoneHub) { pendingPhoneHub = false; svc?.startPhoneHub() } else svc?.resumePhoneHubIfWanted()
         }
         override fun onServiceDisconnected(name: ComponentName) { svc = null; bound = false }
     }
@@ -93,6 +107,9 @@ class MainActivity : AppCompatActivity() {
         g2Btn.setOnClickListener { if (G2Link.wanted) svc?.stopG2() else startG2WithPermissions() }
         findViewById<Button>(R.id.g2AccessBtn).setOnClickListener { openNotificationAccess() }
         observeG2()
+        PhoneHub.init(applicationContext)
+        setupPhoneHub()
+        handleKeyIntent(intent)
         DisplayCard(findViewById(android.R.id.content), this)
 
         connectBtn.setOnClickListener { connectWithPermissions() }
@@ -126,6 +143,157 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshG2Access()
+        refreshPhoneHubInfo()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleKeyIntent(intent)
+    }
+
+    // ---------------------------------------------------------- G2 phone hub
+    /** `adb shell am start -n com.kunsh.frame/.MainActivity --es claude_key <key>`: store it, then strip it from the intent. */
+    private fun handleKeyIntent(i: Intent?) {
+        val k = i?.getStringExtra(ApiKeyStore.EXTRA) ?: return
+        i.removeExtra(ApiKeyStore.EXTRA)
+        setIntent(i)
+        try { PhoneHub.keys.set(k); toast("Claude key saved") } catch (e: Exception) { toast("Claude key not saved: ${e.message}") }
+        refreshPhoneHubInfo()
+    }
+
+    private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show()
+
+    private fun setupPhoneHub() {
+        hubMode = findViewById(R.id.hubMode)
+        phoneHubText = findViewById(R.id.phoneHubText)
+        phoneHubArms = findViewById(R.id.phoneHubArms)
+        phoneHubBtn = findViewById(R.id.phoneHubBtn)
+        keyInput = findViewById(R.id.keyInput)
+        keyText = findViewById(R.id.keyText)
+        micText = findViewById(R.id.micText)
+        calText = findViewById(R.id.calText)
+        ideasCountText = findViewById(R.id.ideasCountText)
+
+        hubMode.check(if (PhoneHub.mode == "phone") R.id.hubPhone else R.id.hubLaptop)
+        hubMode.setOnCheckedChangeListener { _, id ->
+            val m = if (id == R.id.hubPhone) "phone" else "laptop"
+            val s = svc
+            if (s != null) s.setHubMode(m) else PhoneHub.mode = m
+            applyHubMode()
+        }
+        applyHubMode()
+
+        phoneHubBtn.setOnClickListener { if (PhoneHub.wanted) svc?.stopPhoneHub() else startPhoneHubWithPermissions() }
+        findViewById<Button>(R.id.phoneAccessBtn).setOnClickListener { openNotificationAccess() }
+        val notifSwitch = findViewById<SwitchCompat>(R.id.phoneNotifSwitch)
+        notifSwitch.isChecked = PhoneHub.notificationsOn
+        notifSwitch.setOnCheckedChangeListener { _, on -> PhoneHub.notificationsOn = on }
+
+        findViewById<Button>(R.id.keySaveBtn).setOnClickListener {
+            val k = keyInput.text.toString().trim()
+            if (k.isEmpty()) return@setOnClickListener
+            try { PhoneHub.keys.set(k); keyInput.setText(""); toast("Claude key saved") } catch (e: Exception) { toast(e.message ?: "not saved") }
+            refreshPhoneHubInfo()
+        }
+        findViewById<Button>(R.id.keyClearBtn).setOnClickListener { PhoneHub.keys.clear(); refreshPhoneHubInfo() }
+
+        val feats = listOf(
+            Triple(R.id.featStocks, PhoneHub.KEY_FEAT_STOCKS, R.id.featStocksText),
+            Triple(R.id.featCalendar, PhoneHub.KEY_FEAT_CAL, R.id.featCalendarText),
+            Triple(R.id.featIdeas, PhoneHub.KEY_FEAT_IDEAS, R.id.featIdeasText))
+        for ((sw, key, _) in feats) {
+            val v = findViewById<SwitchCompat>(sw)
+            v.isChecked = PhoneHub.feature(key)
+            v.setOnCheckedChangeListener { _, on ->
+                if (on && key == PhoneHub.KEY_FEAT_CAL && !AndroidCalendar.canRead(this)) requestCalendar()
+                PhoneHub.setFeature(key, on)
+            }
+        }
+        PhoneHub.feeds.observe(this) { m ->
+            for ((_, key, tv) in feats) {
+                findViewById<TextView>(tv).text = m[key] ?: if (PhoneHub.feature(key)) "on" else "off"
+            }
+        }
+        val tickers = findViewById<EditText>(R.id.tickersInput)
+        tickers.setText(PhoneHub.tickers.joinToString(", "))
+        findViewById<Button>(R.id.tickersSaveBtn).setOnClickListener {
+            PhoneHub.tickers = tickers.text.toString().split(',', ' ').mapNotNull { Stocks.normalize(it) }.distinct()
+            tickers.setText(PhoneHub.tickers.joinToString(", "))
+            PhoneHub.refreshStocksNow()
+        }
+        findViewById<Button>(R.id.calChooseBtn).setOnClickListener { chooseCalendar() }
+
+        PhoneHub.state.observe(this) { st ->
+            phoneHubText.text = st.text
+            phoneHubText.setTextColor(Color.parseColor(if (st.ready) "#33CC33" else "#999999"))
+            phoneHubBtn.text = if (PhoneHub.wanted) "Disconnect" else "Connect"
+            val bat = st.battery?.let { "$it%" + if (st.charging == true) " (charging)" else "" } ?: "-"
+            phoneHubArms.text = "Left: ${st.left}   Right: ${st.right}   Battery: $bat"
+        }
+        PhoneHub.ai.observe(this) { findViewById<TextView>(R.id.aiText).text = it }
+        PhoneHub.lastNotif.observe(this) { findViewById<TextView>(R.id.phoneNotifText).text = "Last notification: $it" }
+        refreshPhoneHubInfo()
+    }
+
+    private fun applyHubMode() {
+        val phone = PhoneHub.mode == "phone"
+        findViewById<View>(R.id.g2LaptopCard).visibility = if (phone) View.GONE else View.VISIBLE
+        for (id in listOf(R.id.phoneHubCard, R.id.askCard, R.id.featuresCard))
+            findViewById<View>(id).visibility = if (phone) View.VISIBLE else View.GONE
+    }
+
+    private fun refreshPhoneHubInfo() {
+        if (!::keyText.isInitialized) return
+        keyText.text = "Claude API: " + PhoneHub.keys.describe()
+        val mic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        micText.text = "Questions are heard by the PHONE microphone (${PhoneHub.speechEngine}), not the glasses' mic." +
+            if (mic) "" else " Microphone permission NOT granted."
+        val cal = if (AndroidCalendar.canRead(this)) PhoneHub.calendar.chosen()?.let { "${it.name} (${it.account})" } ?: "no writable calendar"
+        else "permission not granted"
+        calText.text = "Calendar for new events: $cal"
+        ideasCountText.text = "Ideas saved on this phone: ${PhoneHub.ideas.all().size}"
+    }
+
+    private fun chooseCalendar() {
+        if (!AndroidCalendar.canRead(this)) { requestCalendar(); return }
+        val cals = PhoneHub.calendar.writableCalendars()
+        if (cals.isEmpty()) { toast("No writable calendar on this phone"); return }
+        AlertDialog.Builder(this)
+            .setTitle("Calendar for new events")
+            .setItems(cals.map { "${it.name} (${it.account})" + if (it.primary) " - primary" else "" }.toTypedArray()) { _, i ->
+                PhoneHub.calendar.choose(cals[i].id); refreshPhoneHubInfo()
+            }
+            .show()
+    }
+
+    private fun requestCalendar() {
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR), 4)
+    }
+
+    private fun phoneHubPermissions(): List<String> {
+        val p = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 31) { p += Manifest.permission.BLUETOOTH_SCAN; p += Manifest.permission.BLUETOOTH_CONNECT }
+        else p += Manifest.permission.ACCESS_FINE_LOCATION
+        p += Manifest.permission.RECORD_AUDIO
+        p += Manifest.permission.READ_CALENDAR
+        p += Manifest.permission.WRITE_CALENDAR
+        if (Build.VERSION.SDK_INT >= 33) p += Manifest.permission.POST_NOTIFICATIONS
+        return p.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+    }
+
+    private fun bluetoothGranted(): Boolean {
+        val need = if (Build.VERSION.SDK_INT >= 31) listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        else listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        return need.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+    }
+
+    private fun startPhoneHubWithPermissions() {
+        val missing = phoneHubPermissions()
+        if (missing.isEmpty()) startPhoneHubNow() else ActivityCompat.requestPermissions(this, missing.toTypedArray(), 3)
+    }
+
+    private fun startPhoneHubNow() {
+        if (svc != null) svc?.startPhoneHub() else pendingPhoneHub = true
     }
 
     override fun onDestroy() {
@@ -240,6 +408,12 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 2) { refreshG2Access(); startG2Now(); return }
+        if (requestCode == 3) {
+            refreshPhoneHubInfo()
+            if (bluetoothGranted()) startPhoneHubNow() else toast("Bluetooth permission is needed to reach the glasses")
+            return
+        }
+        if (requestCode == 4) { refreshPhoneHubInfo(); return }
         if (requestCode == 1 && neededPermissions().none { it != Manifest.permission.POST_NOTIFICATIONS }) {
             svc?.connect()
         }

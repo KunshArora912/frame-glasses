@@ -25,7 +25,7 @@ class G2SessionTest {
 
     private val now = 1792497600L
 
-    private fun <T> withSession(responder: Responder? = fakeGlassesResponder(), config: G2Session.Config = G2Session.Config(keepalive = false, timeScale = 0.01),
+    private fun <T> withSession(responder: Responder? = fakeGlassesResponder(), config: G2Session.Config = G2Session.Config(keepalive = false, timeScale = 0.01, preserveUserSettings = false),
                                 body: suspend (FakeTransport, G2Session) -> T): T = runBlocking {
         val t = FakeTransport(responder)
         val sc = CoroutineScope(coroutineContext + Job())
@@ -65,7 +65,7 @@ class G2SessionTest {
     }
 
     @Test
-    fun startupWithHeartbeatWeatherAndMenu() = withSession(config = G2Session.Config(keepalive = false, timeScale = 0.01, startupHeartbeat = true,
+    fun startupWithHeartbeatWeatherAndMenu() = withSession(config = G2Session.Config(keepalive = false, timeScale = 0.01, preserveUserSettings = false, startupHeartbeat = true,
         startupWeather = Dashboard.Weather(21f, weatherType = 1, status = "Sunny"), startupMenu = Menu.DEFAULT_MENU)) { t, g ->
         val res = g.startup()
         assertTrue(res.ok)

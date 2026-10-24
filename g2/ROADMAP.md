@@ -12,7 +12,13 @@ glasses  <-BLE->  gateway (vendor, patched)  <-HTTP/WS->  g2/run.py process
                                                    |-- hub (g2/hub.py)        (native dashboard feed, menu, keep-alive)
                                                    |-- native Glasses         (g2/native via POST /api/raw + raw events)
 phone (android/ companion) <-WebSocket g2/phone_link.py (127.0.0.1:8768 via adb reverse)-> laptop: GPS, phone notifications, display settings
+
+on the go (app "Hub: Phone"): glasses <-BLE-> phone (android/g2core G2Ble + G2Session, app PhoneHub)  - no laptop
 ```
+
+The phone hub (2026-10-24) is the second host: one or the other holds the glasses, never both.
+It keeps Even's native dashboard as the only UI (no EvenHub page, no menu push, widget pushes
+only for features the user switched on); see `g2/PHONE.md` -> Phone hub mode.
 
 - One native `Glasses` instance per process, owned by `g2/hub.py:Hub`, exposed to
   apps as `ctx.native` and to the hub's feeds. Apps never open their own transport.
@@ -43,8 +49,9 @@ phone (android/ companion) <-WebSocket g2/phone_link.py (127.0.0.1:8768 via adb 
 | 11 | Notifications from the phone | Android companion `G2NotificationListener` -> WebSocket (adb reverse, 127.0.0.1:8768) -> `g2/phone_link.py` (filter, dedupe, 1 card / 3 s with coalescing, log to `g2/logs/notifications.jsonl`) -> `hub.glasses.notify` under `hub.lock`; see `g2/PHONE.md`. Also a Display card on the phone (height / distance / brightness / auto, synced both ways via `read_settings` / `apply_setting`) | **implemented 2026-10-24**: 24 tests on fakes. Verified on the real phone: listener -> WebSocket -> filter -> log; display sets from the phone's sliders reached the server; the live stack read the real glasses' settings and sent them to the phone. Hardware check pending: the card itself on the glasses (hub-form EvenFile transfer is DECODED/UNTESTED) and a set applied to the real glasses |
 | 12 | Navigate | Android GPS (LocationManager, 5 s, inside the foreground service) -> `g2/phone_link.py` (`PhoneLink.location`, 512-fix ring, `on_location(cb)`, `latest()` as a nav position source) -> Valhalla routing (nav/); native navigation frames | GPS feed implemented 2026-10-24 (tests on fakes; the phone registers GPS + network updates under the location FGS type; no live fix yet because Location was off on the phone); not yet wired to nav/guidance or the native Navigate frames |
 | 13 | Head movements (IMU) for apps | gateway imuControl + events; head-up handled by firmware settings | wave 2 |
-| 14 | Health (R1 ring), Stocks | no ring here; stocks need a feed | later / optional |
+| 14 | Health (R1 ring), Stocks | no ring here; stocks: phone hub feature "Stocks on dashboard" (Yahoo/Stooq, every 15 min, off by default) | health later / optional; stocks implemented in the phone hub, card DECODED and never seen on the glasses |
 | 15 | Firmware update without the app | community flasher (g2flash) | later, on request |
+| 17 | Phone hub (glasses on the go, no laptop) | `android/g2core` + app `PhoneHub` (connect both arms, startup with heartbeat off, keep-alive, per-arm reinit, battery/status, Display card direct), notifications (hub form, community fallback), Even AI replacement `EvenAiTurns` (phone-mic SpeechRecognizer -> Claude with phone tools: calendar add/list, save idea, stock quote), dashboard features off by default (stocks / calendar / ideas) | **implemented 2026-10-24**: 24 app JVM tests + 298 g2core tests; APK built. Hardware check pending: phone connect + startup, notification card (which form acks), Even AI wake -> answer on the glasses, stocks card (DECODED) |
 | 16 | Terminal Mode (Claude Code / console sessions on the glasses, approve/reply) | `g2/terminal.py` hub (transcript watcher + Claude Code hooks via `g2/terminal_hook.py` + ConPTY/pyte managed sessions, 127.0.0.1:8767) and the Terminal app (`g2/apps/terminal.py`); see `g2/TERMINAL.md` | **implemented, hardware check pending** (26 tests on fakes; verify on the glasses: list/session screens, hold = approve, swipe up = deny, voice reply; verify with a live Claude Code that a PermissionRequest decision from the glasses is honoured) |
 
 ## Verification log

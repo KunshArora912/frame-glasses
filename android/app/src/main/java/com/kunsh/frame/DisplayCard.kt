@@ -11,7 +11,8 @@ import androidx.lifecycle.LifecycleOwner
 
 /**
  * The G2 "Display" card: Display Height (vertical slider 0..20), Display Distance (Near / Mid / Far
- * plus a fine slider 0..20), brightness 1..50 with Auto, and the glasses' battery. Synced both ways
+ * plus a fine slider 0..20), brightness 1..50 with Auto, and the glasses' battery. In phone hub mode it reads and
+ * applies the settings directly ([PhoneHub.applySet], g2core settings); in laptop mode it syncs both ways
  * through the laptop (g2/phone_link.py): incoming "display" messages move the controls unless the
  * user is dragging that control (or let go of it less than [HOLD_MS] ago); user changes send "set".
  */
@@ -51,27 +52,39 @@ class DisplayCard(root: View, owner: LifecycleOwner) {
             val v = PRESETS.getValue(name)
             hold("distance")
             programmatic = true; distanceBar.progress = v; programmatic = false
-            G2Link.sendSet("distance", v)
+            send("distance", v)
         }
         autoSwitch.setOnCheckedChangeListener { _, checked ->
             brightBar.isEnabled = !checked
-            if (!programmatic) { hold("auto"); G2Link.sendSet("auto", if (checked) 1 else 0) }
+            if (!programmatic) { hold("auto"); send("auto", if (checked) 1 else 0) }
         }
-        G2Link.display.observe(owner) { show(it) }
-        G2Link.state.observe(owner) { card.visibility = if (G2Link.wanted) View.VISIBLE else View.GONE }
+        G2Link.display.observe(owner) { if (!phoneMode()) show(it) }
+        PhoneHub.display.observe(owner) { if (phoneMode()) show(it) }
+        G2Link.state.observe(owner) { visibility() }
+        PhoneHub.state.observe(owner) { visibility() }
+    }
+
+    /** Phone hub mode: read/apply directly through g2core; laptop mode: through g2/phone_link.py. */
+    private fun phoneMode() = PhoneHub.wanted
+
+    private fun send(key: String, value: Int) { if (phoneMode()) PhoneHub.applySet(key, value) else G2Link.sendSet(key, value) }
+
+    private fun visibility() {
+        card.visibility = if (G2Link.wanted || PhoneHub.wanted) View.VISIBLE else View.GONE
+        if (PhoneHub.wanted && PhoneHub.display.value == null) show(null)
     }
 
     private fun bind(bar: SeekBar, key: String, label: (Int) -> Unit) {
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
                 label(p)
-                if (fromUser && !programmatic) { hold(key); G2Link.sendSet(key, p) }
+                if (fromUser && !programmatic) { hold(key); send(key, p) }
             }
             override fun onStartTrackingTouch(sb: SeekBar) { dragging += key }
             override fun onStopTrackingTouch(sb: SeekBar) {
                 dragging -= key
                 hold(key)
-                G2Link.sendSet(key, sb.progress)       // the final value, in case a drag value was coalesced away
+                send(key, sb.progress)                 // the final value, in case a drag value was coalesced away
             }
         })
     }
@@ -86,7 +99,7 @@ class DisplayCard(root: View, owner: LifecycleOwner) {
 
     private fun show(d: G2Link.Display?) {
         if (d == null) {
-            batteryText.text = "Glasses: waiting for the laptop"
+            batteryText.text = if (phoneMode()) "Glasses: waiting for the phone hub to connect" else "Glasses: waiting for the laptop"
             batteryText.setTextColor(Color.parseColor("#999999"))
             return
         }

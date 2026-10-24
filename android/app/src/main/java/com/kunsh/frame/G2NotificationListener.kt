@@ -13,7 +13,8 @@ import androidx.lifecycle.MutableLiveData
 
 /**
  * Reads the phone's notifications (after the user grants "Notification access") and hands them to
- * [G2Link], which forwards them to the laptop while the G2 laptop link is on. Skips this app,
+ * [G2Link], which forwards them to the laptop while the G2 laptop link is on, or to [PhoneHub], which shows them
+ * on the glasses directly while the phone hub holds them. Skips this app,
  * com.even.sg, ongoing/foreground-service notifications and group summaries; silent ones are sent
  * with "silent":true so the laptop's filter decides.
  */
@@ -42,7 +43,8 @@ class G2NotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
-        if (pkg == packageName || pkg in G2Link.NEVER || !G2Link.wanted) return
+        val phone = PhoneHub.active
+        if (pkg == packageName || pkg in G2Link.NEVER || (!G2Link.wanted && !phone)) return
         val n = sbn.notification ?: return
         if (sbn.isOngoing || n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0) return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
@@ -50,7 +52,8 @@ class G2NotificationListener : NotificationListenerService() {
         val title = (ex.getCharSequence(Notification.EXTRA_TITLE_BIG) ?: ex.getCharSequence(Notification.EXTRA_TITLE))?.toString().orEmpty()
         val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (title.isBlank() && text.isBlank()) return
-        G2Link.sendNotif(pkg, label(pkg, n), title, text, sbn.postTime, sbn.key, false, isSilent(sbn))
+        if (phone) PhoneHub.notify(pkg, label(pkg, n), title, text, sbn.key, isSilent(sbn))   // phone hub: straight to the glasses
+        else G2Link.sendNotif(pkg, label(pkg, n), title, text, sbn.postTime, sbn.key, false, isSilent(sbn))
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

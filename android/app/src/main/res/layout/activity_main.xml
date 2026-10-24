@@ -20,8 +20,71 @@
             android:textColor="@color/text"
             android:paddingBottom="12dp" />
 
-        <!-- G2 laptop link card: notifications + GPS to g2/phone_link.py; never touches Bluetooth -->
+        <!-- G2 hub mode: which host holds the Even G2 glasses -->
         <LinearLayout style="@style/Card">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Even G2 hub" android:textStyle="bold" android:textColor="@color/text" />
+            <RadioGroup android:id="@+id/hubMode" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <RadioButton android:id="@+id/hubLaptop" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Hub: Laptop" android:textColor="@color/text" android:paddingEnd="16dp" />
+                <RadioButton android:id="@+id/hubPhone" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Phone" android:textColor="@color/text" />
+            </RadioGroup>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="Only one host can hold the glasses. Laptop: g2/run.py holds them and this phone forwards notifications and GPS. Phone: this phone holds both arms itself (stop the laptop gateway first)." />
+        </LinearLayout>
+
+        <!-- G2 phone hub card (Phone mode) -->
+        <LinearLayout style="@style/Card" android:id="@+id/phoneHubCard" android:visibility="gone">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="G2 phone hub" android:textStyle="bold" android:textColor="@color/text" />
+                    <TextView android:id="@+id/phoneHubText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="off" android:textColor="@color/muted" android:textSize="13sp" />
+                </LinearLayout>
+                <Button android:id="@+id/phoneHubBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Connect" />
+            </LinearLayout>
+            <TextView android:id="@+id/phoneHubArms" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Left: -   Right: -   Battery: -" android:textColor="@color/text" android:textSize="13sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/phoneNotifSwitch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Phone notifications to the glasses" android:textColor="@color/text" android:textSize="13sp" />
+                <Button android:id="@+id/phoneAccessBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Access" android:textSize="12sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/phoneNotifText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="Last notification: none yet" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="Talks to the glasses directly over Bluetooth (g2core). Even\'s dashboard stays as Even had it: no board page, no menu change, no widget push unless you switch a dashboard feature on below. Double tap on the glasses closes things. Even\'s servers are never contacted." />
+        </LinearLayout>
+
+        <!-- Ask questions (Even AI replacement, Phone mode) -->
+        <LinearLayout style="@style/Card" android:id="@+id/askCard" android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ask questions (Even AI)" android:textStyle="bold" android:textColor="@color/text" />
+            <TextView android:id="@+id/aiText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Even AI: waiting" android:textColor="@color/text" android:textSize="13sp" />
+            <TextView android:id="@+id/micText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textColor="#FFFF9900" android:textSize="12sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <EditText android:id="@+id/keyInput" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Claude API key" android:inputType="textPassword" android:textColor="@color/text" android:textColorHint="@color/muted" android:importantForAutofill="no" />
+                <Button android:id="@+id/keySaveBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Save" android:textSize="12sp" />
+                <Button android:id="@+id/keyClearBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Clear" android:textSize="12sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/keyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="no key" android:textColor="@color/text" android:textSize="13sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="Pick Even AI on the glasses (or your long-press gesture), then speak. The PHONE microphone hears the question (the glasses\' mic sends LC3 audio, which this app does not decode yet). Only the question text goes to Anthropic\'s API; calendar, ideas and everything else stay on the phone. Claude can add and list calendar events, save ideas and look up stock prices. Double tap on the glasses closes the answer." />
+        </LinearLayout>
+
+        <!-- Dashboard features (Phone mode), all off by default -->
+        <LinearLayout style="@style/Card" android:id="@+id/featuresCard" android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Dashboard features" android:textStyle="bold" android:textColor="@color/text" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="All off by default. Nothing is pushed to a dashboard card unless you switch it on here. Switching off stops pushing; the glasses keep what they last showed." />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/featStocks" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Stocks on dashboard (every 15 min)" android:textColor="@color/text" android:paddingTop="6dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <EditText android:id="@+id/tickersInput" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="AAPL, MSFT (max 5)" android:inputType="textCapCharacters" android:textColor="@color/text" android:textColorHint="@color/muted" android:importantForAutofill="no" />
+                <Button android:id="@+id/tickersSaveBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Save" android:textSize="12sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/featStocksText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="off" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/featCalendar" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Calendar on dashboard (today + tomorrow)" android:textColor="@color/text" android:paddingTop="6dp" />
+            <TextView android:id="@+id/featCalendarText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="off" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/featIdeas" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Ideas on dashboard (quick list)" android:textColor="@color/text" android:paddingTop="6dp" />
+            <TextView android:id="@+id/featIdeasText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="off" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+                <TextView android:id="@+id/calText" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Calendar: -" android:textColor="@color/text" android:textSize="13sp" />
+                <Button android:id="@+id/calChooseBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Choose" android:textSize="12sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/ideasCountText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/muted" android:textSize="12sp" android:text="Ideas saved on this phone: 0" />
+        </LinearLayout>
+
+        <!-- G2 laptop link card: notifications + GPS to g2/phone_link.py; never touches Bluetooth -->
+        <LinearLayout style="@style/Card" android:id="@+id/g2LaptopCard">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -121,7 +184,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="Read from the glasses through the laptop every 10 s and after each change; changes made on the laptop show up here too."
+                android:text="Laptop mode: read through the laptop every 10 s and after each change. Phone mode: read directly every 60 s and after each change."
                 android:textColor="@color/muted"
                 android:textSize="12sp" />
         </LinearLayout>

@@ -1,7 +1,10 @@
 # Phone link (Even G2): notifications, GPS and display settings from the Android companion
 
-The laptop holds the glasses' Bluetooth link (gateway on 127.0.0.1:8765). The phone never
-connects to the glasses. It forwards its notifications and GPS fixes to the laptop and mirrors
+Two modes, chosen in the app (**Hub: Laptop | Phone**). This page first describes **Laptop**
+mode, then [Phone hub mode](#phone-hub-mode-no-laptop), where the phone holds the glasses itself.
+
+In Laptop mode the laptop holds the glasses' Bluetooth link (gateway on 127.0.0.1:8765), and the
+phone never connects to the glasses. It forwards its notifications and GPS fixes to the laptop and mirrors
 the glasses' display settings. Everything stays local: no cloud, no Even app.
 
 ```
@@ -59,3 +62,39 @@ Standalone without the launcher: `python g2/phone_link.py [--port N] [--no-push]
 
 Card delivery (`Glasses.notify`, hub form) is DECODED/UNTESTED on hardware (native-protocol.md section 6).
 Tests: `python -m unittest g2.test_phone_link`.
+
+## Phone hub mode (no laptop)
+
+The app's **Hub: Laptop | Phone** switch picks the host. In **Phone** mode the phone holds both
+arms itself through `android/g2core` and the laptop is not involved at all. Stop `g2/run.py`
+(the gateway) first, because only one central can hold the glasses. If they are not advertising,
+the app says they are probably connected to something else.
+
+```
+phone (android/, Hub: Phone)  --BLE (g2core G2Ble + G2Session)-->  both G2 arms
+   PhoneHub: startup (heartbeat off), keep-alive, per-arm reinit, status, Display card
+   notification listener -> filter -> G2Session.notify (hub form, community fallback)
+   Even AI WAKE_UP -> ENTER/heartbeat -> phone mic SpeechRecognizer -> ASK/ANALYSE -> Claude (+ phone tools) -> REPLY -> EXIT
+   dashboard features (off by default): stocks, calendar, ideas -> setStocks / setCalendar / setTasks
+```
+
+Owner rules that the code follows: no EvenHub page and no menu push from the phone; nothing is
+pushed to a dashboard widget, and nothing is display-enabled, unless the user switched that
+feature on; switching off stops pushing and restores nothing; a double tap (EXIT from the
+glasses) closes an answer.
+
+| Feature | How | Confidence |
+|---|---|---|
+| Connect, startup, keep-alive, reinit | `G2Ble` (no bond first, `bondBeforeConnect` fallback) + `G2Session.startup()` | g2core unit-tested; **not yet run on a phone** |
+| Display card | `readSettings` / `applySetting` (height, distance, brightness, auto) | brightness/auto LIVE on the laptop; height/distance SET DECODED |
+| Notifications | hub form, then the community form after 2 hub failures; the log says which acked | hub form DECODED/UNTESTED, community form COMMUNITY |
+| Ask questions | SID 0x07 session as in `g2/even_ai.py`, but the phone mic replaces the glasses' LC3 stream | session LIVE on the laptop hub; the phone-mic path is untested |
+| Stocks card | `setStocks` (stock display-enable + one push per quote) | DECODED, never seen on the glasses |
+| Calendar card | `setCalendar` (today and tomorrow, up to 8, Even's time format) | LIVE (laptop) |
+| Ideas | `setTasks` quick list | LIVE (laptop) |
+
+Privacy: only the question text (and Claude's tool calls/results) goes to Anthropic's API
+(`api.anthropic.com`), and stock lookups go to Yahoo/Stooq. Everything else stays on the phone
+(calendar via CalendarContract, ideas in `files/ideas.jsonl`, notifications). Even's servers are
+never contacted. The Claude key lives only on the phone (Keystore-encrypted). See
+`android/README.md` for setup and provisioning.

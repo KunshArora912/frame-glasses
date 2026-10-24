@@ -29,6 +29,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * only redraws pushed content while no heartbeat is being sent); set [Config.heartbeatForPushes] to bracket pushes with
  * it like the Python `Glasses` does.
  */
+/** startup steps that would change what the owner configured in Even's app */
+val G2_USER_SETTING_STEPS = setOf("dashboard init", "units", "onboarding FINISH", "gestures default")
+
 class G2Session(
     private val transport: G2Transport,
     parentScope: CoroutineScope,
@@ -41,6 +44,9 @@ class G2Session(
     private val log: (String) -> Unit = {},
 ) {
     data class Config(
+        /** Leave what the owner set in Even's app alone on connect: skip dashboard init (widget layout),
+         *  units, onboarding FINISH and "gestures default" (would overwrite long-press settings). Default on. */
+        val preserveUserSettings: Boolean = true,
         /** start/stop the EvenHub heartbeat around dashboard pushes (Python Glasses behaviour). Default off. */
         val heartbeatForPushes: Boolean = false,
         /** run the prelude + heartbeat bracket during [startup] (MinimalDashboardPlan steps 3-5/18). Default off. */
@@ -289,6 +295,7 @@ class G2Session(
 
     fun startupPlan(): List<Step> = HubStartupPlan(alloc, clockMs() / 1000, tzUnits, config.startupHeartbeat, config.startupWeather,
         config.startupMenu, dispTime = config.notificationDispTime).steps()
+        .filter { !config.preserveUserSettings || it.label !in G2_USER_SETTING_STEPS }
 
     /**
      * The startup sequence for a fresh connection of both arms: auth L, auth R, dashboard init, 0x0D subscribe, role, time

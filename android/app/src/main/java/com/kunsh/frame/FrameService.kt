@@ -81,6 +81,8 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         ble = FrameBle(this, this)
         relay = Relay(this)
         G2Link.log = { addLog(it) }
+        PhoneHub.init(this)
+        PhoneHub.log = { msg -> main.post { addLog(msg) } }
         G2Link.onIntervalChanged = { if (g2Loc != null) startG2Location() }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
@@ -94,6 +96,7 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
 
     override fun onDestroy() {
         g2Loc?.stop(); g2Loc = null           // the G2 socket itself may live on in the notification listener
+        if (PhoneHub.wanted) PhoneHub.stop(forget = false)
         if (G2Link.log != null) G2Link.log = null
         G2Link.onIntervalChanged = null
         relay.unlink()
@@ -107,6 +110,10 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
             addLog("G2 laptop link is on: Frame Bluetooth connect refused (Disconnect the G2 link first)")
             return
         }
+        if (PhoneHub.wanted) {
+            addLog("G2 phone hub is on: Frame Bluetooth connect refused (Disconnect the phone hub first)")
+            return
+        }
         wantConnected = true
         goForeground("Connecting to Frame")
         ble.connect(if (forceScan) null else savedAddress)
@@ -116,12 +123,48 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         wantConnected = false
         main.removeCallbacks(reconnect)
         ble.disconnect()
-        if (G2Link.wanted) goForeground("G2 laptop link") else stopForeground(STOP_FOREGROUND_REMOVE)
+        if (G2Link.wanted) goForeground("G2 laptop link") else if (PhoneHub.wanted) goForeground("G2 phone hub") else stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    // ------------------------------------------------------- G2 phone hub
+    /** Laptop | Phone. Switching to Phone stops the laptop link; switching to Laptop stops the phone hub. */
+    fun setHubMode(mode: String) {
+        if (mode == PhoneHub.mode) return
+        PhoneHub.mode = mode
+        if (mode == "phone") { if (G2Link.wanted) stopG2() } else { if (PhoneHub.wanted) stopPhoneHub() }
+        addLog("G2 hub mode: $mode")
+    }
+
+    /** This phone holds both G2 arms (no laptop). */
+    fun startPhoneHub() {
+        if (G2Link.wanted) stopG2()
+        if (wantConnected || ble.connected) {
+            addLog("phone hub: closing the Frame Bluetooth link")
+            wantConnected = false
+            main.removeCallbacks(reconnect); main.removeCallbacks(reconnectCheck)
+            ble.disconnect()
+        }
+        PhoneHub.mode = "phone"
+        PhoneHub.start()
+        goForeground("G2 phone hub")
+        addLog("G2 phone hub on")
+    }
+
+    fun stopPhoneHub() {
+        PhoneHub.stop()
+        if (!wantConnected && !ble.connected && !G2Link.wanted) stopForeground(STOP_FOREGROUND_REMOVE)
+        addLog("G2 phone hub off")
+    }
+
+    /** The app was opened with the phone hub left on (e.g. after a reboot): connect again. */
+    fun resumePhoneHubIfWanted() {
+        if (PhoneHub.mode == "phone" && PhoneHub.resumeWanted && !PhoneHub.wanted) startPhoneHub()
     }
 
     // ------------------------------------------------------- G2 laptop link
     /** Forward phone notifications + GPS to g2/phone_link.py. Never touches Bluetooth. */
     fun startG2(url: String) {
+        if (PhoneHub.wanted) stopPhoneHub()          // only one host may hold the glasses
         if (wantConnected || ble.connected) {
             addLog("G2 mode: closing the Frame Bluetooth link")
             wantConnected = false
@@ -140,7 +183,7 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
 
     /** The app was opened with the G2 link left on (e.g. after a reboot): bring back socket + GPS + foreground. */
     fun resumeG2IfWanted() {
-        if (prefs.getBoolean(KEY_G2_ON, false) && g2Loc == null) startG2(savedG2Url)
+        if (PhoneHub.mode != "phone" && prefs.getBoolean(KEY_G2_ON, false) && g2Loc == null) startG2(savedG2Url)
     }
 
     fun stopG2() {
@@ -148,7 +191,8 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         G2Link.stop()
         g2Loc?.stop(); g2Loc = null
         G2Link.setFixText("off")
-        if (!wantConnected && !ble.connected) stopForeground(STOP_FOREGROUND_REMOVE) else goForeground("Frame link")
+        if (PhoneHub.wanted) goForeground("G2 phone hub")
+        else if (!wantConnected && !ble.connected) stopForeground(STOP_FOREGROUND_REMOVE) else goForeground("Frame link")
         addLog("G2 laptop link off")
     }
 
@@ -296,10 +340,14 @@ class FrameService : Service(), FrameBle.Listener, Relay.Listener {
         if (Build.VERSION.SDK_INT < 29) { startForeground(NOTIF_ID, n); return }
         var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         if (G2Link.wanted && hasLocationPermission()) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        // phone hub: the Even AI replacement listens on the phone mic while the screen is off
+        if (PhoneHub.wanted && Build.VERSION.SDK_INT >= 30 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         try {
             startForeground(NOTIF_ID, n, type)
         } catch (e: Exception) {              // SecurityException / ForegroundServiceStartNotAllowedException
-            addLog("foreground (type $type) refused: ${e.message}; retrying without location")
+            addLog("foreground (type $type) refused: ${e.message}; retrying as connectedDevice only")
             try { startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) }
             catch (e2: Exception) { addLog("foreground refused: ${e2.message}") }
         }
